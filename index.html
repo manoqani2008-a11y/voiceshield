@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>VoiceShield - Smart Dialer & AI Protection</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Roboto+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#121316">
+  <script>
+    // Barcha eski Service Worker va keshlarni tozalash (yangi kod darhol ishlashi uchun)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        for (const reg of regs) reg.unregister();
+      });
+    }
+    if ('caches' in window) {
+      caches.keys().then(keys => {
+        for (const key of keys) caches.delete(key);
+      });
+    }
+  </script>
+</head>
+<body>
+  <!-- Asosiy Mobil Shell -->
+  <div class="m3-app-shell">
+
+    <!-- Yuqori M3 AppBar -->
+    <header class="m3-top-app-bar glass-bar">
+      <div class="m3-brand">
+        <div class="m3-logo-badge">🛡️</div>
+        <div>
+          <h1 class="m3-app-title">VoiceShield</h1>
+          <span class="m3-app-caption">AI Anti-Spoofing Dialer</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div class="m3-status-chip glass-chip" id="wsChip">
+          <span class="m3-status-dot" id="wsIndicator"></span>
+          <span class="m3-status-text" id="wsStatusText">AI Faol</span>
+        </div>
+        <button class="glass-chip" id="btnOpenSettings" title="Gemini AI API Sozlamalari" style="cursor: pointer; padding: 6px 10px; border-radius: 12px; font-size: 14px; border: 1px solid rgba(255,255,255,0.12);">⚙️</button>
+      </div>
+    </header>
+
+    <!-- Asosiy Dinamik Sahifalar (Views) -->
+    <main class="m3-main-content">
+
+      <!-- ================= 1. KLAVIATURA (Dialer / Keypad) ================= -->
+      <section class="m3-view-page" id="secKeypad">
+        <!-- Yuqori qism: Tahminiy mos kontaktlar ro'yxati va terilgan raqam -->
+        <div class="keypad-top-panel">
+          <!-- Mos keluvchi kontaktlar ro'yxati (T9 / Raqam bo'yicha) -->
+          <div class="keypad-suggestions-list" id="keypadSuggestionsList">
+            <!-- Dinamik ravishda terilgan raqamga mos kontaktlar chiqadi -->
+          </div>
+
+          <!-- Terilgan raqam ekrani -->
+          <div class="keypad-display-wrapper">
+            <div class="keypad-display-num" id="keypadDisplay"></div>
+            <button class="keypad-backspace-btn" id="btnKeypadBackspace" title="O'chirish">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><line x1="18" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/></svg>
+            </button>
+          </div>
+          <button class="keypad-add-contact-btn glass-chip" id="btnKeypadAddContact" style="display: none;">
+            <span>➕</span> Yangi kontaktga saqlash
+          </button>
+        </div>
+
+        <!-- Pastki qism: Klaviaturani va qo'ng'iroq tugmasini pastga mahkamlash -->
+        <div class="keypad-bottom-panel">
+          <!-- Raqamlar Klaviaturasi (iOS / Pixel Style) -->
+          <div class="m3-keypad-grid">
+            <button class="keypad-key glass-key" data-key="1"><span class="k-num">1</span><span class="k-sub">~</span></button>
+            <button class="keypad-key glass-key" data-key="2"><span class="k-num">2</span><span class="k-sub">ABC</span></button>
+            <button class="keypad-key glass-key" data-key="3"><span class="k-num">3</span><span class="k-sub">DEF</span></button>
+            
+            <button class="keypad-key glass-key" data-key="4"><span class="k-num">4</span><span class="k-sub">GHI</span></button>
+            <button class="keypad-key glass-key" data-key="5"><span class="k-num">5</span><span class="k-sub">JKL</span></button>
+            <button class="keypad-key glass-key" data-key="6"><span class="k-num">6</span><span class="k-sub">MNO</span></button>
+            
+            <button class="keypad-key glass-key" data-key="7"><span class="k-num">7</span><span class="k-sub">PQRS</span></button>
+            <button class="keypad-key glass-key" data-key="8"><span class="k-num">8</span><span class="k-sub">TUV</span></button>
+            <button class="keypad-key glass-key" data-key="9"><span class="k-num">9</span><span class="k-sub">WXYZ</span></button>
+            
+            <button class="keypad-key glass-key" data-key="*"><span class="k-num">*</span><span class="k-sub"></span></button>
+            <button class="keypad-key glass-key" data-key="0"><span class="k-num">0</span><span class="k-sub">+</span></button>
+            <button class="keypad-key glass-key" data-key="#"><span class="k-num">#</span><span class="k-sub"></span></button>
+          </div>
+
+          <!-- Qo'ng'iroq qilish tugmasi -->
+          <div class="keypad-dial-action">
+            <button class="keypad-call-fab" id="btnKeypadDial" title="Himoyalangan qo'ng'iroq qilish">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 2. QO'NG'IROQLAR TARIXI (Call History) ================= -->
+      <section class="m3-view-page" id="secHistory">
+        <div class="m3-page-title-box">
+          <div class="title-with-action">
+            <div>
+              <h2>Qo'ng'iroqlar Tarixi</h2>
+              <p>O'tgan suhbatlar va AI xavfsizlik natijalari</p>
+            </div>
+            <button class="m3-tonal-button mini glass-btn" id="btnClearHistory" title="Tarixni tozalash">Tozalash</button>
+          </div>
+        </div>
+
+        <!-- Tarix statistikasi -->
+        <div class="history-stats-card m3-card glass-card">
+          <div class="stat-box">
+            <span class="stat-num" id="statTotalCalls">0</span>
+            <span class="stat-label">Suhbatlar</span>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-box">
+            <span class="stat-num" id="statTotalDuration">0 daq</span>
+            <span class="stat-label">Davomiylik</span>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-box">
+            <span class="stat-num text-danger" id="statDeepfakesBlocked">0</span>
+            <span class="stat-label">AI Aniqlangan</span>
+          </div>
+        </div>
+
+        <!-- Tarix ro'yxati -->
+        <div class="call-history-list" id="callHistoryList">
+          <!-- Dinamik qo'ng'iroqlar tarixi js orqali joylanadi -->
+        </div>
+      </section>
+
+      <!-- ================= 3. QO'NG'IROQ EKRANI (Active Call Screen) ================= -->
+      <section class="m3-view-page active" id="secCall">
+        
+        <!-- Holat 1: Kiruvchi Qo'ng'iroq (Pixel Call UI) -->
+        <div class="call-stage-view active" id="viewIncoming">
+          <div class="pixel-avatar-container">
+            <div class="pixel-avatar-pulse"></div>
+            <div class="pixel-avatar-box" id="incomingAvatarBox">
+              <span id="incomingAvatarEmoji">🏢</span>
+              <img id="incomingAvatarImg" src="" style="display: none;" alt="Avatar">
+            </div>
+          </div>
+
+          <div class="pixel-caller-details">
+            <h2 class="pixel-caller-name" id="incomingCallerName">Direktor (Ofis)</h2>
+            <div class="pixel-caller-phone" id="incomingCallerPhone">+998 (90) 123-45-67</div>
+            <div class="m3-pill-badge glass-chip">
+              <span class="pill-spark">✨</span>
+              <span>AI Ovoz Klonidan Himoyalangan</span>
+            </div>
+          </div>
+
+          <p class="pixel-call-notice">
+            Qo'ng'iroq boshlanishi bilan ovoz neyrotarmoq orqali real vaqtda tahlil qilinadi.
+          </p>
+
+          <!-- M3 Pixel Qo'ng'iroq Tugmalari -->
+          <div class="pixel-actions-row">
+            <button class="pixel-call-fab btn-decline" id="btnReject" title="Qo'ng'iroqni rad etish">
+              <div class="fab-circle">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-6-6 19.8 19.8 0 0 1-3.12-8.68A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/></svg>
+              </div>
+              <span class="fab-label">Rad etish</span>
+            </button>
+
+            <button class="pixel-call-fab btn-accept" id="btnAnswer" title="Javob berish">
+              <div class="fab-circle accept-pulse">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+              </div>
+              <span class="fab-label">Javob berish</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Holat 2: Qo'ng'iroq Jarayoni (Active Call Screen) -->
+        <div class="call-stage-view" id="viewCalling">
+          <div class="pixel-in-call-header">
+            <h3 class="in-call-name" id="inCallName">Direktor (Ofis)</h3>
+            <span class="in-call-timer" id="callTimer">00:00</span>
+          </div>
+
+          <!-- M3 Ovoz To'lqini (Smooth Waveform) -->
+          <div class="m3-card wave-card glass-card">
+            <canvas id="waveCanvas" width="340" height="52"></canvas>
+          </div>
+
+          <!-- M3 Xavf Ko'rsatkichi Kartasi -->
+          <div class="m3-card risk-card glass-card" id="riskCard">
+            <div class="risk-card-header">
+              <div class="risk-score-group">
+                <span class="risk-percent-num" id="riskPercent">4%</span>
+                <span class="m3-tonal-badge" id="riskBadge">XAVFSIZ</span>
+              </div>
+              <span class="risk-verdict-title" id="riskLabel">Ovoz haqiqiy insonniki</span>
+            </div>
+
+            <div class="m3-progress-track">
+              <div class="m3-progress-indicator" id="riskBarFill"></div>
+            </div>
+          </div>
+
+          <!-- Jonli Sinov Boshqaruvi (AI Ovoz va Tizim Ovozini eshitish) -->
+          <div class="in-call-test-strip">
+            <button class="test-pill-btn glass-btn" id="btnInjectAIVoice" title="Sun'iy intellekt ovozini chalib sinash">
+              <span class="pill-icon">🤖</span>
+              <span>AI Ovozini chalish</span>
+            </button>
+            <button class="test-pill-btn glass-btn" id="btnSystemAudio" title="Kompyuter yoki Telegram ovozini eshitish">
+              <span class="pill-icon">💻</span>
+              <span>Tizim audiosini ulash</span>
+            </button>
+          </div>
+
+          <!-- Sezgirlik sozlamasi -->
+          <div class="in-call-test-strip" style="margin-top: 6px;">
+            <button class="test-pill-btn active glass-btn" id="btnToggleSensitivity" title="Aniqlash sezgirligini o'zgartirish">
+              <span class="pill-icon">⚡</span>
+              <span id="txtSensitivity">Sezgirlik: Yuqori (Gemini & TTS)</span>
+            </button>
+          </div>
+
+          <!-- M3 Xavf Ogohlantirish Kartasi (Danger Banner) -->
+          <div class="m3-alert-banner" id="dangerAlert">
+            <div class="alert-icon-box">🚨</div>
+            <div class="alert-text-box">
+              <strong style="color: #FFB4AB; font-size: 15px;">XAVFLI! SUN'IY INTELLEKT OVOZI!</strong>
+              <p style="margin: 4px 0 0; color: #E2E2E9; font-size: 13px;">Ushbu qo'ng'iroqda AI / Deepfake klon ovozi aniqlandi! Pul o'tkazmang, ikkinchi kanal orqali tekshiring!</p>
+            </div>
+          </div>
+
+          <!-- 2-kanal orqali tasdiqlash tugmasi -->
+          <button class="m3-tonal-button glass-btn" id="btnVerifyChannel">
+            <span class="btn-icon">🔐</span>
+            <span>Ikkinchi kanal orqali tasdiqlash</span>
+          </button>
+
+          <div class="m3-spacer"></div>
+
+          <!-- Qo'ng'iroqni uzish tugmasi -->
+          <button class="pixel-call-fab btn-decline" id="btnEndCall" style="margin-bottom: 8px;">
+            <div class="fab-circle">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-6-6 19.8 19.8 0 0 1-3.12-8.68A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/></svg>
+            </div>
+            <span class="fab-label">Tugatish</span>
+          </button>
+        </div>
+
+        <!-- Holat 3: Qo'ng'iroq Tugadi -->
+        <div class="call-stage-view" id="viewEnded">
+          <div class="ended-avatar-circle" id="endIcon">✓</div>
+          <h2 class="ended-heading" id="endTitle">Qo'ng'iroq Tugadi</h2>
+          <p class="ended-subtext" id="endDesc">Xavf darajasi me'yorda bo'ldi.</p>
+
+          <div class="m3-card summary-card glass-card">
+            <div class="summary-item-row">
+              <span>Davomiyligi:</span>
+              <strong id="summaryDuration">00:15</strong>
+            </div>
+            <div class="summary-item-row">
+              <span>Maksimal AI xavfi:</span>
+              <strong id="summaryMaxRisk">4%</strong>
+            </div>
+            <div class="summary-item-row">
+              <span>Xulosa:</span>
+              <strong id="summaryVerdict" class="text-safe">Xavfsiz</strong>
+            </div>
+          </div>
+
+          <button class="m3-filled-button" id="btnRestart">Yangi qo'ng'iroq</button>
+        </div>
+      </section>
+
+      <!-- ================= 4. KONTAKTLAR (Contacts) ================= -->
+      <section class="m3-view-page" id="secContacts">
+        <div class="m3-page-title-box">
+          <div class="title-with-action">
+            <div>
+              <h2>Kontaktlar</h2>
+              <p>Himoyalangan telefon daftarchasi</p>
+            </div>
+            <button class="m3-filled-button mini" id="btnAddContactOpen">
+              <span>➕</span> Yangi
+            </button>
+          </div>
+        </div>
+
+        <!-- Qidiruv qatori -->
+        <div class="contacts-search-box glass-card">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="contactSearchInput" placeholder="Ism yoki telefon raqami...">
+        </div>
+
+        <!-- Kontaktlar ro'yxati -->
+        <div class="contacts-list" id="contactsList">
+          <!-- Dinamik kontaktlar js orqali joylanadi -->
+        </div>
+      </section>
+
+      <!-- ================= 5. FAYL TAHLILI & REJIMLAR ================= -->
+      <section class="m3-view-page" id="secFile">
+        <div class="m3-page-title-box">
+          <h2>Fayl Tahlili & Sozlamalar</h2>
+          <p>Ovozli xabarlarni (.wav, .mp3) tekshirish va rejimlar</p>
+        </div>
+
+        <!-- Drag & Drop Yuklash Maydoni -->
+        <div class="m3-upload-dropzone glass-card" id="dropZone">
+          <input type="file" id="audioFileInput" accept="audio/*,.wav,.mp3,.ogg,.m4a" style="display: none;">
+          <div class="upload-icon-circle">🎙️</div>
+          <strong class="upload-primary-text">Audio faylni yuklang</strong>
+          <span class="upload-secondary-text">Telegram ovozli xabarlari, .wav, .mp3</span>
+          <button class="m3-tonal-button mini glass-btn" id="btnBrowseFile">Faylni tanlash</button>
+        </div>
+
+        <!-- Tezkor test namunalari -->
+        <div class="m3-samples-wrapper">
+          <span class="m3-subhead-label">TEZKOR SINOV</span>
+          <div class="samples-pill-grid">
+            <button class="m3-sample-chip human glass-chip" id="btnTestHuman">
+              <span>👤</span> Haqiqiy inson
+            </button>
+            <button class="m3-sample-chip clone glass-chip" id="btnTestClone">
+              <span>🤖</span> ElevenLabs klon
+            </button>
+          </div>
+        </div>
+
+        <!-- Natija kartasi -->
+        <div class="m3-card file-analysis-card glass-card" id="fileResultCard" style="display: none;">
+          <div class="analysis-card-top">
+            <span class="m3-tonal-badge" id="fileVerdictBadge">DEEPFAKE</span>
+            <span class="analysis-percentage" id="filePercent">92%</span>
+          </div>
+          <h4 id="fileVerdictTitle">Sintetik Ovoz</h4>
+          <p id="fileVerdictDesc" class="analysis-description"></p>
+          <div class="analysis-bullet-points" id="fileFindings"></div>
+        </div>
+
+        <!-- Ishlash rejimlari -->
+        <span class="m3-subhead-label" style="margin-top: 24px;">ISHLASH REJIMI</span>
+        <div class="m3-card list-container-card glass-card">
+          <div class="m3-list-tile active" id="modeRealMic">
+            <div class="tile-leading-icon">🎙️</div>
+            <div class="tile-content">
+              <strong>Jonli Mikrofon</strong>
+              <small>Haqiqiy mikrofondan tahlil</small>
+            </div>
+            <div class="tile-trailing-radio"></div>
+          </div>
+
+          <div class="m3-list-tile" id="modeSimReal">
+            <div class="tile-leading-icon">👤</div>
+            <div class="tile-content">
+              <strong>Simulyatsiya: Haqiqiy</strong>
+              <small>Inson ovozi (Xavf 3-6%)</small>
+            </div>
+            <div class="tile-trailing-radio"></div>
+          </div>
+
+          <div class="m3-list-tile" id="modeSimFake">
+            <div class="tile-leading-icon">🤖</div>
+            <div class="tile-content">
+              <strong>Simulyatsiya: Deepfake</strong>
+              <small>Sun'iy klon hujumi (Xavf 85-94%)</small>
+            </div>
+            <div class="tile-trailing-radio"></div>
+          </div>
+        </div>
+
+        <!-- Akustik ko'rsatkichlar -->
+        <span class="m3-subhead-label" style="margin-top: 24px;">AKUSTIK KO'RSATKICHLAR</span>
+        <div class="m3-card list-container-card glass-card">
+          <div class="m3-metric-row">
+            <span>Spektral tekislik (SFM):</span>
+            <strong id="metricFlatness">0.12</strong>
+          </div>
+          <div class="m3-metric-row">
+            <span>Asosiy ton (Pitch):</span>
+            <strong id="metricPitch">-- Hz</strong>
+          </div>
+          <div class="m3-metric-row">
+            <span>Garmonika sifati:</span>
+            <strong id="metricJitter">Normal</strong>
+          </div>
+          <div class="m3-metric-row">
+            <span>Signal kuchi (RMS):</span>
+            <strong id="metricVolume">0 dB</strong>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Google Material 3 Translucent Bottom Navigation Bar (5 ta bo'lim) -->
+    <nav class="m3-navigation-bar glass-nav">
+      <button class="m3-nav-item" id="navKeypad">
+        <div class="m3-nav-indicator">
+          <span class="m3-nav-icon">⌨️</span>
+        </div>
+        <span class="m3-nav-label">Klaviatura</span>
+      </button>
+
+      <button class="m3-nav-item" id="navHistory">
+        <div class="m3-nav-indicator">
+          <span class="m3-nav-icon">🕒</span>
+        </div>
+        <span class="m3-nav-label">Tarix</span>
+      </button>
+
+      <button class="m3-nav-item active" id="navCall">
+        <div class="m3-nav-indicator">
+          <span class="m3-nav-icon">📞</span>
+        </div>
+        <span class="m3-nav-label">Qo'ng'iroq</span>
+      </button>
+
+      <button class="m3-nav-item" id="navContacts">
+        <div class="m3-nav-indicator">
+          <span class="m3-nav-icon">👥</span>
+        </div>
+        <span class="m3-nav-label">Kontaktlar</span>
+      </button>
+
+      <button class="m3-nav-item" id="navFile">
+        <div class="m3-nav-indicator">
+          <span class="m3-nav-icon">📁</span>
+        </div>
+        <span class="m3-nav-label">Fayl/Test</span>
+      </button>
+    </nav>
+
+    <!-- Kontakt Qo'shish / Tahrirlash Bottom Sheet -->
+    <div class="m3-bottom-sheet" id="modalContact">
+      <div class="m3-sheet-scrim" id="modalContactBackdrop"></div>
+      <div class="m3-sheet-surface contact-editor-surface glass-sheet">
+        <div class="m3-sheet-handle"></div>
+        <h3 class="sheet-main-title" id="modalContactTitle">Yangi Kontakt</h3>
+        
+        <div class="contact-avatar-picker-wrap">
+          <div class="contact-preview-avatar" id="contactPreviewAvatar">
+            <span id="contactPreviewEmoji">👤</span>
+            <img id="contactPreviewImg" src="" style="display: none;" alt="Avatar">
+          </div>
+          <div class="avatar-controls">
+            <input type="file" id="inputAvatarFile" accept="image/*" style="display: none;">
+            <button class="m3-tonal-button mini glass-btn" id="btnChoosePhoto">📷 Rasm yuklash</button>
+            <div class="emoji-quick-select">
+              <span class="emoji-chip" data-emoji="👤">👤</span>
+              <span class="emoji-chip" data-emoji="🏢">🏢</span>
+              <span class="emoji-chip" data-emoji="💼">💼</span>
+              <span class="emoji-chip" data-emoji="🏦">🏦</span>
+              <span class="emoji-chip" data-emoji="👨‍💼">👨‍💼</span>
+              <span class="emoji-chip" data-emoji="👩‍💻">👩‍💻</span>
+              <span class="emoji-chip" data-emoji="🚗">🚗</span>
+              <span class="emoji-chip" data-emoji="❤️">❤️</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="m3-text-field">
+          <label>Kontakt Ismi</label>
+          <input type="text" id="inputContactName" placeholder="Masalan: Sardor Buxgalter">
+        </div>
+
+        <div class="m3-text-field">
+          <label>Telefon Raqami</label>
+          <input type="tel" id="inputContactPhone" placeholder="+998 (90) 123-45-67">
+        </div>
+
+        <div class="contact-modal-actions">
+          <button class="m3-tonal-button glass-btn" id="btnCancelContact">Bekor qilish</button>
+          <button class="m3-filled-button" id="btnSaveContact">Saqlash</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- M3 2-Kanal Bottom Sheet -->
+    <div class="m3-bottom-sheet" id="sheetVerify">
+      <div class="m3-sheet-scrim" id="sheetBackdrop"></div>
+      <div class="m3-sheet-surface glass-sheet">
+        <div class="m3-sheet-handle"></div>
+
+        <div id="verifyStep1">
+          <div class="sheet-top-icon">📱</div>
+          <h3 class="sheet-main-title">2-Kanal Tasdiqlash</h3>
+          <p class="sheet-sub-text">
+            Rahbarning shaxsiy raqamiga (SMS / Telegram) bir martalik 4 xonali kod jo'natildi:
+          </p>
+
+          <div class="m3-otp-display-card glass-card" id="otpCodeDisplay">----</div>
+
+          <p class="sheet-warning-caption">
+            Suhbatdoshdan ushbu kodni aytishini talab qiling. Deepfake yoki firibgar bu kodni bila olmaydi!
+          </p>
+
+          <div class="sheet-actions-stack">
+            <button class="m3-filled-button error-button" id="btnOtpMismatch">
+              Kod mos kelmadi (Firibgar)
+            </button>
+            <button class="m3-tonal-button glass-btn" id="btnOtpMatch">
+              Kod to'g'ri aytildi
+            </button>
+          </div>
+        </div>
+
+        <div id="verifyStep2" style="display: none;">
+          <div class="sheet-top-icon safe-icon">🛡️</div>
+          <h3 class="sheet-main-title">Firibgarlik To'xtatildi!</h3>
+          <p class="sheet-sub-text">
+            Qo'ng'iroq "Deepfake Hujumi" deb belgilandi va xavfsizlik bo'limiga hisobot uzatildi.
+          </p>
+          <button class="m3-filled-button error-button" id="btnCloseAndReport" style="margin-top: 18px;">
+            Qo'ng'iroqni zudlik bilan uzish
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Google Gemini AI API Sozlamalari Modal -->
+    <div class="m3-bottom-sheet" id="modalSettings">
+      <div class="m3-sheet-scrim" id="modalSettingsBackdrop"></div>
+      <div class="m3-sheet-surface glass-sheet" style="max-width: 440px;">
+        <div class="m3-sheet-handle"></div>
+        <div class="sheet-top-icon">⚡</div>
+        <h3 class="sheet-main-title">Google Gemini AI API</h3>
+        <p class="sheet-sub-text">
+          Ovozni multimodal neyrotarmoq orqali 100% aniqlikda (inson yoki sun'iy intellekt ekanligini) tahlil qilish uchun Gemini API kalitini ulang.
+        </p>
+        
+        <div class="m3-text-field" style="margin-top: 16px;">
+          <label>Gemini API Kalit</label>
+          <input type="password" id="inputGeminiApiKey" placeholder="AIzaSy...">
+        </div>
+
+        <div id="geminiKeyStatusNotice" style="font-size: 12px; margin-top: 8px; color: var(--m3-primary);"></div>
+
+        <p class="sheet-warning-caption" style="text-align: left; margin-top: 8px; line-height: 1.5;">
+          💡 <strong>Bepul kalit olish:</strong> Google AI Studio (<a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: var(--m3-primary); font-weight: 700;">aistudio.google.com</a>) saytidan 1 daqiqada bepul olishingiz mumkin.
+        </p>
+
+        <div class="contact-modal-actions" style="margin-top: 20px;">
+          <button class="m3-tonal-button glass-btn" id="btnCloseSettings">Yopish</button>
+          <button class="m3-filled-button" id="btnSaveApiKey">Saqlash & Ulanish</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js?v=10"></script>
+</body>
+</html>

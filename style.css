@@ -1,0 +1,1782 @@
+:root {
+  /* Google Material 3 (Material You) Dark Tonal Palette */
+  --m3-surface: #111318;
+  --m3-surface-dim: #0E1014;
+  --m3-surface-container: #1D2026;
+  --m3-surface-container-high: #272A31;
+  --m3-surface-container-highest: #32353D;
+  --m3-on-surface: #E2E2E9;
+  --m3-on-surface-variant: #9496A1;
+  --m3-outline: rgba(255, 255, 255, 0.08);
+  --m3-outline-variant: rgba(255, 255, 255, 0.14);
+
+  /* Primary Accent: Google Pixel Blue */
+  --m3-primary: #A8C7FA;
+  --m3-on-primary: #062E6F;
+  --m3-primary-container: #1A3A68;
+  --m3-on-primary-container: #D3E3FD;
+
+  /* Safe State: Google Mint */
+  --m3-safe: #6DD58C;
+  --m3-on-safe: #0A3818;
+  --m3-safe-container: rgba(109, 213, 140, 0.16);
+  --m3-on-safe-container: #A8F0BA;
+
+  /* Error State: Google Coral */
+  --m3-error: #F2B8B5;
+  --m3-on-error: #601410;
+  --m3-error-container: rgba(242, 184, 181, 0.16);
+  --m3-on-error-container: #F9DEDC;
+
+  /* Warning */
+  --m3-warning: #FFD56B;
+  --m3-warning-container: rgba(255, 213, 107, 0.15);
+
+  --m3-nav-height: 76px;
+  --m3-top-bar-height: 64px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: var(--m3-surface-dim);
+  color: var(--m3-on-surface);
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+}
+
+/* Asosiy Mobil Shell (Desktopda markazlashgan, Telefonda 100%) */
+.m3-app-shell {
+  width: 100%;
+  height: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: 
+    radial-gradient(circle at 12% 15%, rgba(168, 199, 250, 0.08) 0%, transparent 45%),
+    radial-gradient(circle at 88% 85%, rgba(109, 213, 140, 0.06) 0%, transparent 45%),
+    radial-gradient(circle at 50% 50%, rgba(242, 184, 181, 0.03) 0%, transparent 60%),
+    var(--m3-surface);
+  box-shadow: 0 0 60px rgba(0, 0, 0, 0.7);
+}
+
+/* ================= Yuqori M3 Top Bar ================= */
+.m3-top-app-bar {
+  height: var(--m3-top-bar-height);
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--m3-surface);
+  border-bottom: 1px solid var(--m3-outline);
+  z-index: 20;
+  flex-shrink: 0;
+}
+
+.m3-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.m3-logo-badge {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--m3-primary-container);
+  color: var(--m3-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.m3-app-title {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--m3-on-surface);
+}
+
+.m3-app-caption {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--m3-primary);
+  display: block;
+}
+
+.m3-status-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--m3-surface-container);
+  border: 1px solid var(--m3-outline);
+  padding: 6px 12px;
+  border-radius: 20px;
+}
+
+.m3-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--m3-safe);
+}
+
+.m3-status-dot.disconnected {
+  background: var(--m3-warning);
+}
+
+.m3-status-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--m3-on-surface);
+}
+
+/* ================= Asosiy Sahifa Kontenti ================= */
+.m3-main-content {
+  flex: 1;
+  overflow-y: auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.m3-main-content::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes pageFadeSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.m3-view-page {
+  display: none !important;
+  flex: 1;
+  flex-direction: column;
+  padding: 16px 20px 96px; /* Pastki nav bar uchun joy */
+  height: 100%;
+  overflow-y: auto;
+}
+
+.m3-view-page.active {
+  display: flex !important;
+  animation: pageFadeSlideIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ================= M3 Kartalar (Cards) ================= */
+.m3-card {
+  background: var(--m3-surface-container);
+  border-radius: 24px;
+  padding: 18px 20px;
+  border: 1px solid var(--m3-outline);
+  transition: all 0.2s ease;
+}
+
+/* ================= 1. QO'NG'IROQ EKRANI (Pixel Style) ================= */
+.call-stage-view {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  text-align: center;
+}
+
+.call-stage-view.active {
+  display: flex;
+}
+
+/* Pixel Avatar */
+.pixel-avatar-container {
+  position: relative;
+  width: 110px;
+  height: 110px;
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pixel-avatar-pulse {
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  border: 2px solid rgba(168, 199, 250, 0.35);
+  animation: m3Pulse 2.2s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+
+@keyframes m3Pulse {
+  0% { transform: scale(0.85); opacity: 0.9; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+.pixel-avatar-box {
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  background: var(--m3-surface-container-high);
+  border: 2px solid var(--m3-outline-variant);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 38px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  z-index: 2;
+}
+
+.pixel-caller-details {
+  margin-top: 20px;
+}
+
+.pixel-caller-name {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--m3-on-surface);
+}
+
+.pixel-caller-phone {
+  font-size: 14px;
+  color: var(--m3-on-surface-variant);
+  margin-top: 4px;
+  font-family: 'Roboto Mono', monospace;
+}
+
+.m3-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--m3-safe-container);
+  color: var(--m3-on-safe-container);
+  border: 1px solid rgba(109, 213, 140, 0.3);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 14px;
+}
+
+.pill-spark {
+  font-size: 13px;
+}
+
+.pixel-call-notice {
+  font-size: 13px;
+  color: var(--m3-on-surface-variant);
+  line-height: 1.5;
+  margin-top: auto;
+  margin-bottom: 30px;
+  padding: 0 12px;
+}
+
+/* Pixel Dumaloq Tugmalar */
+.pixel-actions-row {
+  display: flex;
+  justify-content: center;
+  gap: 56px;
+  margin-bottom: 16px;
+}
+
+.pixel-call-fab {
+  background: none;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.pixel-call-fab:active {
+  transform: scale(0.92);
+}
+
+.fab-circle {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  transition: all 0.2s;
+}
+
+.btn-decline .fab-circle {
+  background: #BA1A1A;
+  box-shadow: 0 8px 24px rgba(186, 26, 26, 0.4);
+}
+
+.btn-accept .fab-circle {
+  background: #146C2E;
+  box-shadow: 0 8px 24px rgba(20, 108, 46, 0.4);
+}
+
+.accept-pulse {
+  animation: m3AcceptPulse 1.8s infinite;
+}
+
+@keyframes m3AcceptPulse {
+  0% { box-shadow: 0 0 0 0 rgba(109, 213, 140, 0.5); }
+  70% { box-shadow: 0 0 0 18px rgba(109, 213, 140, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(109, 213, 140, 0); }
+}
+
+.fab-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--m3-on-surface-variant);
+}
+
+/* ================= Faol Qo'ng'iroq Ko'rinishi ================= */
+.pixel-in-call-header {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.in-call-name {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--m3-on-surface);
+}
+
+.in-call-timer {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 13px;
+  color: var(--m3-on-surface-variant);
+}
+
+.wave-card {
+  width: 100%;
+  height: 54px;
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  overflow: hidden;
+}
+
+#waveCanvas {
+  width: 100%;
+  height: 100%;
+}
+
+/* Xavf Kartasi */
+.risk-card {
+  width: 100%;
+  margin-top: 12px;
+  padding: 20px;
+}
+
+/* Qo'ng'iroq ichidagi tezkor sinov tugmalari */
+.in-call-test-strip {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+}
+
+.test-pill-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: var(--m3-on-surface);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.06);
+}
+
+.test-pill-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(168, 199, 250, 0.35);
+}
+
+.test-pill-btn:active {
+  transform: scale(0.96);
+}
+
+.test-pill-btn.active {
+  border-color: rgba(168, 199, 250, 0.45) !important;
+  background: rgba(168, 199, 250, 0.18) !important;
+  color: var(--m3-primary) !important;
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  box-shadow: 0 4px 16px rgba(168, 199, 250, 0.18), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+}
+
+.test-pill-btn .pill-icon {
+  font-size: 15px;
+}
+
+.risk-card-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.risk-score-group {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.risk-percent-num {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--m3-safe);
+  transition: color 0.3s;
+}
+
+.m3-tonal-badge {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--m3-safe-container);
+  color: var(--m3-on-safe-container);
+  letter-spacing: 0.04em;
+}
+
+.risk-verdict-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--m3-on-surface-variant);
+  margin-top: 6px;
+}
+
+.m3-progress-track {
+  height: 8px;
+  background: var(--m3-surface-container-highest);
+  border-radius: 4px;
+  margin-top: 14px;
+  overflow: hidden;
+}
+
+.m3-progress-indicator {
+  height: 100%;
+  width: 4%;
+  background: var(--m3-safe);
+  border-radius: 4px;
+  transition: width 0.35s cubic-bezier(0.2, 0.9, 0.3, 1), background 0.3s;
+}
+
+/* M3 Alert Banner */
+.m3-alert-banner {
+  display: none;
+  width: 100%;
+  background: var(--m3-error-container);
+  border: 1px solid var(--m3-error);
+  border-radius: 18px;
+  padding: 14px 16px;
+  margin-top: 12px;
+  text-align: left;
+  gap: 12px;
+  align-items: center;
+  animation: m3AlertPulse 1.5s infinite;
+}
+
+.m3-alert-banner.show {
+  display: flex;
+}
+
+@keyframes m3AlertPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+
+.alert-icon-box {
+  font-size: 26px;
+  flex-shrink: 0;
+}
+
+.alert-text-box strong {
+  display: block;
+  font-size: 13px;
+  color: var(--m3-error);
+  font-weight: 800;
+}
+
+.alert-text-box p {
+  font-size: 12px;
+  color: var(--m3-on-error-container);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+/* M3 Tugmalar (Buttons) */
+.m3-tonal-button {
+  width: 100%;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--m3-surface-container-high);
+  color: var(--m3-on-surface);
+  border: 1px solid var(--m3-outline);
+  font-size: 13px;
+  font-weight: 700;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  margin-top: 12px;
+  transition: background 0.2s;
+}
+
+.m3-tonal-button.show {
+  display: flex;
+}
+
+.m3-tonal-button:hover {
+  background: var(--m3-surface-container-highest);
+}
+
+.m3-spacer {
+  flex: 1;
+}
+
+/* Qo'ng'iroq Tugadi */
+.ended-avatar-circle {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: var(--m3-safe-container);
+  color: var(--m3-safe);
+  border: 2px solid rgba(109, 213, 140, 0.4);
+  font-size: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 36px;
+}
+
+.ended-heading {
+  font-size: 22px;
+  font-weight: 800;
+  margin-top: 16px;
+  color: var(--m3-on-surface);
+}
+
+.ended-subtext {
+  font-size: 13px;
+  color: var(--m3-on-surface-variant);
+  margin-top: 4px;
+}
+
+.summary-card {
+  width: 100%;
+  margin-top: 24px;
+  text-align: left;
+}
+
+.summary-item-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 9px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--m3-outline);
+}
+
+.summary-item-row:last-child {
+  border-bottom: none;
+}
+
+.summary-item-row span {
+  color: var(--m3-on-surface-variant);
+}
+
+.text-safe { color: var(--m3-safe); }
+.text-danger { color: var(--m3-error); }
+
+.m3-filled-button {
+  width: 100%;
+  padding: 16px;
+  border-radius: 20px;
+  border: none;
+  background: var(--m3-primary);
+  color: var(--m3-on-primary);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  margin-top: 24px;
+  transition: filter 0.2s;
+}
+
+.m3-filled-button:hover {
+  filter: brightness(1.06);
+}
+
+.error-button {
+  background: #BA1A1A;
+  color: white;
+}
+
+/* ================= 2. FAYL TAHLILI ================= */
+.m3-page-title-box {
+  text-align: left;
+  margin-bottom: 18px;
+}
+
+.m3-page-title-box h2 {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--m3-on-surface);
+}
+
+.m3-page-title-box p {
+  font-size: 13px;
+  color: var(--m3-on-surface-variant);
+  margin-top: 3px;
+}
+
+.upload-container-card {
+  padding: 26px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  border: 2px dashed var(--m3-outline-variant);
+}
+
+.upload-container-card:hover {
+  border-color: var(--m3-primary);
+  background: var(--m3-surface-container-high);
+}
+
+.upload-icon-circle {
+  font-size: 34px;
+}
+
+.upload-primary-text {
+  font-size: 15px;
+  margin-top: 8px;
+}
+
+.upload-secondary-text {
+  font-size: 12px;
+  color: var(--m3-on-surface-variant);
+  margin-top: 4px;
+}
+
+.m3-tonal-button.mini {
+  display: inline-flex;
+  width: auto;
+  padding: 8px 22px;
+  border-radius: 14px;
+  background: var(--m3-primary-container);
+  color: var(--m3-on-primary-container);
+  border: none;
+  margin-top: 14px;
+}
+
+.m3-samples-wrapper {
+  margin-top: 22px;
+  text-align: left;
+}
+
+.m3-subhead-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--m3-primary);
+  letter-spacing: 0.08em;
+  display: block;
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+.samples-pill-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.m3-sample-chip {
+  padding: 13px;
+  border-radius: 18px;
+  background: var(--m3-surface-container);
+  border: 1px solid var(--m3-outline);
+  color: var(--m3-on-surface);
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.m3-sample-chip:hover {
+  background: var(--m3-surface-container-high);
+}
+
+.m3-sample-chip.human:hover {
+  border-color: var(--m3-safe);
+  color: var(--m3-safe);
+}
+
+.m3-sample-chip.clone:hover {
+  border-color: var(--m3-error);
+  color: var(--m3-error);
+}
+
+.file-analysis-card {
+  margin-top: 20px;
+  text-align: left;
+}
+
+.analysis-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.badge-danger {
+  background: var(--m3-error-container);
+  color: var(--m3-error);
+  border: 1px solid var(--m3-error);
+}
+
+.badge-safe {
+  background: var(--m3-safe-container);
+  color: var(--m3-safe);
+  border: 1px solid var(--m3-safe);
+}
+
+.analysis-percentage {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 26px;
+  font-weight: 800;
+}
+
+.analysis-description {
+  font-size: 12px;
+  color: var(--m3-on-surface-variant);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.analysis-bullet-points {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--m3-outline);
+  font-size: 12px;
+  color: var(--m3-on-surface-variant);
+}
+
+.analysis-bullet-points div {
+  margin-bottom: 4px;
+}
+
+/* ================= 3. SOZLAMALAR ================= */
+.list-container-card {
+  padding: 6px 0;
+}
+
+.m3-list-tile {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--m3-outline);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.m3-list-tile:last-child {
+  border-bottom: none;
+}
+
+.m3-list-tile:hover {
+  background: var(--m3-surface-container-high);
+}
+
+.m3-list-tile.active .tile-content strong {
+  color: var(--m3-primary);
+}
+
+.tile-leading-icon {
+  font-size: 22px;
+}
+
+.tile-content strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tile-content small {
+  font-size: 12px;
+  color: var(--m3-on-surface-variant);
+}
+
+.tile-trailing-radio {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--m3-outline-variant);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.m3-list-tile.active .tile-trailing-radio {
+  border-color: var(--m3-primary);
+}
+
+.m3-list-tile.active .tile-trailing-radio::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--m3-primary);
+}
+
+.m3-metric-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 20px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--m3-outline);
+}
+
+.m3-metric-row:last-child {
+  border-bottom: none;
+}
+
+.m3-metric-row span {
+  color: var(--m3-on-surface-variant);
+}
+
+.m3-metric-row strong {
+  color: var(--m3-on-surface);
+  font-family: 'Roboto Mono', monospace;
+}
+
+/* ================= Google Material 3 Navigation Bar ================= */
+.m3-navigation-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--m3-nav-height);
+  background: rgba(16, 18, 24, 0.58) !important;
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border-top: 1px solid rgba(255, 255, 255, 0.09) !important;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 0 10px 6px;
+  z-index: 30;
+}
+
+.m3-nav-item {
+  flex: 1;
+  background: none;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 4px 0;
+  border-radius: 14px;
+  transition: transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+  user-select: none;
+}
+
+.m3-nav-item:active {
+  transform: scale(0.88);
+}
+
+.m3-nav-indicator {
+  width: 58px;
+  height: 32px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.m3-nav-item:hover .m3-nav-indicator {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.m3-nav-icon {
+  font-size: 18px;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.m3-nav-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--m3-on-surface-variant);
+  transition: color 0.2s, font-weight 0.2s, text-shadow 0.2s;
+}
+
+.m3-nav-item.active .m3-nav-indicator {
+  background: rgba(168, 199, 250, 0.18) !important;
+  border: 1px solid rgba(168, 199, 250, 0.4) !important;
+  backdrop-filter: blur(14px) saturate(190%);
+  -webkit-backdrop-filter: blur(14px) saturate(190%);
+  box-shadow: 0 4px 18px rgba(168, 199, 250, 0.22), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  animation: navIndicatorPop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.m3-nav-item.active .m3-nav-icon {
+  animation: iconBounce 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.m3-nav-item.active .m3-nav-label {
+  color: var(--m3-primary);
+  font-weight: 800;
+  text-shadow: 0 0 12px rgba(168, 199, 250, 0.4);
+}
+
+@keyframes navIndicatorPop {
+  0% { transform: scale(0.8); opacity: 0.5; }
+  60% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes iconBounce {
+  0% { transform: scale(0.75) translateY(2px); }
+  50% { transform: scale(1.22) translateY(-3px); }
+  100% { transform: scale(1) translateY(0); }
+}
+
+/* ================= M3 Bottom Sheet ================= */
+.m3-bottom-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: none;
+}
+
+.m3-bottom-sheet.open {
+  display: block;
+}
+
+.m3-sheet-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.m3-sheet-surface {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--m3-surface-container-high);
+  border-top-left-radius: 28px;
+  border-top-right-radius: 28px;
+  border-top: 1px solid var(--m3-outline-variant);
+  padding: 16px 20px 32px;
+  text-align: center;
+  animation: m3SlideUp 0.35s cubic-bezier(0.2, 0.9, 0.3, 1);
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.6);
+}
+
+@keyframes m3SlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.m3-sheet-handle {
+  width: 36px;
+  height: 4px;
+  background: var(--m3-outline-variant);
+  border-radius: 2px;
+  margin: 0 auto 16px;
+}
+
+.sheet-top-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--m3-primary-container);
+  color: var(--m3-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  margin: 0 auto 12px;
+}
+
+.sheet-top-icon.safe-icon {
+  background: var(--m3-safe-container);
+  color: var(--m3-safe);
+}
+
+.sheet-main-title {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--m3-on-surface);
+}
+
+.sheet-sub-text {
+  font-size: 13px;
+  color: var(--m3-on-surface-variant);
+  line-height: 1.5;
+  margin: 6px 0 14px;
+}
+
+.m3-otp-display-card {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  background: var(--m3-surface-container-highest);
+  border: 1px dashed var(--m3-outline-variant);
+  padding: 12px 18px;
+  border-radius: 18px;
+  margin-bottom: 12px;
+  color: var(--m3-primary);
+}
+
+.sheet-warning-caption {
+  font-size: 11px;
+  color: var(--m3-error);
+  margin-bottom: 18px;
+}
+
+.sheet-actions-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ==========================================================================
+   TRANSLUCENT / GLASSMORPHISM STYLES & DIALER, CONTACTS, HISTORY EXTENSIONS
+   ========================================================================== */
+
+/* Shaffof / Frosted Glass effektlari */
+.glass-bar {
+  background: rgba(16, 18, 24, 0.60) !important;
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.glass-nav {
+  background: rgba(16, 18, 24, 0.58) !important;
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border-top: 1px solid rgba(255, 255, 255, 0.09) !important;
+}
+
+.glass-card {
+  background: rgba(26, 29, 36, 0.55) !important;
+  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28), inset 0 1px 1px rgba(255, 255, 255, 0.06);
+}
+
+.glass-btn {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1), 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.glass-btn:hover, .glass-btn.active {
+  background: rgba(168, 199, 250, 0.18) !important;
+  border-color: rgba(168, 199, 250, 0.4) !important;
+  box-shadow: 0 4px 16px rgba(168, 199, 250, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+}
+
+.glass-chip {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08);
+}
+
+.glass-sheet {
+  background: rgba(26, 29, 36, 0.88) !important;
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border-top: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+/* ================= 1. KLAVIATURA (KEYPAD) ================= */
+#secKeypad {
+  display: none !important;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 10px 16px 86px;
+  height: 100%;
+  overflow: hidden;
+}
+
+#secKeypad.active {
+  display: flex !important;
+  animation: pageFadeSlideIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.keypad-top-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  width: 100%;
+  overflow: hidden;
+  padding-bottom: 6px;
+}
+
+.keypad-suggestions-list {
+  width: 100%;
+  max-height: 150px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 2px;
+}
+
+.keypad-suggestions-list::-webkit-scrollbar {
+  display: none;
+}
+
+.keypad-suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-radius: 18px;
+  width: 100%;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  animation: fadeIn 0.15s ease;
+}
+
+.keypad-suggestion-item:hover {
+  background: rgba(168, 199, 250, 0.15) !important;
+}
+
+.keypad-bottom-panel {
+  flex-shrink: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.mini-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--m3-surface-container-high);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.mini-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mini-info {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+}
+
+.mini-info strong {
+  display: block;
+  font-size: 13px;
+  color: var(--m3-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini-info small {
+  font-size: 11px;
+  color: var(--m3-on-surface-variant);
+  font-family: 'Roboto Mono', monospace;
+}
+
+.mini-call-btn {
+  background: var(--m3-safe);
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.keypad-display-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  position: relative;
+  min-height: 48px;
+}
+
+.keypad-display-num {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--m3-on-surface);
+  letter-spacing: 0.05em;
+  text-align: center;
+  word-break: break-all;
+  padding: 0 40px;
+}
+
+.keypad-backspace-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--m3-on-surface-variant);
+  padding: 8px;
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.keypad-backspace-btn:active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--m3-on-surface);
+}
+
+.keypad-add-contact-btn {
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 16px;
+  color: var(--m3-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Keypad Grid (3 x 4) */
+.m3-keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  max-width: 290px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.glass-key {
+  aspect-ratio: 1;
+  max-width: 66px;
+  max-height: 66px;
+  margin: 0 auto;
+  width: 100%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px) saturate(170%);
+  -webkit-backdrop-filter: blur(16px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.12), 0 4px 14px rgba(0, 0, 0, 0.2);
+  transition: all 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+  user-select: none;
+}
+
+.glass-key:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(168, 199, 250, 0.35);
+  transform: translateY(-2px);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2), 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+
+.glass-key:active {
+  transform: scale(0.88);
+  background: rgba(168, 199, 250, 0.28);
+  border-color: rgba(168, 199, 250, 0.5);
+  box-shadow: 0 0 16px rgba(168, 199, 250, 0.4), inset 0 2px 4px rgba(0, 0, 0, 0.25);
+}
+
+.k-num {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--m3-on-surface);
+  font-family: 'Roboto Mono', monospace;
+}
+
+.k-sub {
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--m3-on-surface-variant);
+  margin-top: 2px;
+  text-transform: uppercase;
+}
+
+.keypad-dial-action {
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+  margin-bottom: 12px;
+}
+
+.keypad-call-fab {
+  width: 62px;
+  height: 62px;
+  border-radius: 31px;
+  background: linear-gradient(135deg, #4ade80, #16a34a);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(22, 163, 74, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.keypad-call-fab:hover {
+  transform: scale(1.08) translateY(-2px);
+  box-shadow: 0 10px 28px rgba(22, 163, 74, 0.6);
+}
+
+.keypad-call-fab:active {
+  transform: scale(0.92);
+}
+
+/* ================= 2. QO'NG'IROQLAR TARIXI (HISTORY) ================= */
+.title-with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.history-stats-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 14px 10px;
+  margin-bottom: 16px;
+  border-radius: 20px;
+}
+
+.stat-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+.stat-num {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--m3-primary);
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--m3-on-surface-variant);
+  margin-top: 2px;
+}
+
+.stat-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--m3-outline);
+}
+
+.call-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 20px;
+}
+
+.history-item-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 18px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.history-item-card:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.history-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--m3-surface-container-high);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.history-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.history-details {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+}
+
+.history-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.history-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--m3-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-time {
+  font-size: 11px;
+  color: var(--m3-on-surface-variant);
+  flex-shrink: 0;
+}
+
+.history-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.history-duration {
+  color: var(--m3-on-surface-variant);
+  font-family: 'Roboto Mono', monospace;
+  font-size: 11px;
+}
+
+.history-empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--m3-on-surface-variant);
+}
+
+.history-empty-state .empty-icon {
+  font-size: 40px;
+  margin-bottom: 8px;
+}
+
+/* ================= 3. KONTAKTLAR (CONTACTS) ================= */
+.contacts-search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 16px;
+  margin-bottom: 16px;
+}
+
+.contacts-search-box input {
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--m3-on-surface);
+  font-size: 14px;
+  width: 100%;
+}
+
+.contacts-search-box input::placeholder {
+  color: var(--m3-on-surface-variant);
+}
+
+.contacts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 20px;
+}
+
+.contact-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 18px;
+  transition: all 0.15s;
+}
+
+.contact-card:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.contact-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--m3-surface-container-high);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.contact-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.contact-info {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+}
+
+.contact-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--m3-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-phone {
+  font-size: 12px;
+  color: var(--m3-on-surface-variant);
+  font-family: 'Roboto Mono', monospace;
+  margin-top: 2px;
+}
+
+.contact-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.icon-action-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  width: 36px;
+  height: 36px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--m3-on-surface);
+  transition: all 0.15s;
+}
+
+.icon-action-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: scale(1.05);
+}
+
+.icon-action-btn.call-btn {
+  background: var(--m3-safe-container);
+  color: var(--m3-safe);
+  border-color: var(--m3-safe);
+}
+
+.icon-action-btn.delete-btn {
+  color: var(--m3-error);
+}
+
+/* Modal Contact Editor */
+.contact-editor-surface {
+  text-align: left !important;
+}
+
+.contact-avatar-picker-wrap {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.contact-preview-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--m3-surface-container-highest);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  overflow: hidden;
+  border: 2px solid var(--m3-primary);
+  flex-shrink: 0;
+}
+
+.contact-preview-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-controls {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.emoji-quick-select {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.emoji-chip {
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.15s;
+}
+
+.emoji-chip:hover, .emoji-chip.active {
+  background: rgba(168, 199, 250, 0.25);
+  transform: scale(1.15);
+}
+
+.m3-text-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.m3-text-field label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--m3-on-surface-variant);
+}
+
+.m3-text-field input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 14px;
+  color: var(--m3-on-surface);
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+
+.m3-text-field input:focus {
+  border-color: var(--m3-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.contact-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.contact-modal-actions button {
+  flex: 1;
+}
+
+/* Dynamic Image Avatar in Call Stage */
+.pixel-avatar-box img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
