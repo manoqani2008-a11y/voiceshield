@@ -1142,57 +1142,35 @@ function analyzeMicrophoneLoop() {
     let instantRisk = 10;
     if (isInjectingAI) {
       instantRisk = 96;
-    } else if (rms >= 0.010) {
-      // 1. Spektral Tekislik (Vocoder vs Inson)
-      if (linSfm >= 0.44) {
-        instantRisk += Math.min(45, Math.round((linSfm - 0.44) * 500 + 30));
-      } else if (linSfm >= 0.38) {
-        instantRisk += Math.round((linSfm - 0.38) * 250 + 10);
-      } else if (linSfm < 0.32) {
-        instantRisk = Math.max(4, instantRisk - 18);
+    } else if (rms >= 0.008) {
+      // Inson mikrofonga gapirganda (jonli nutq):
+      // Haqiqiy inson nutqida xavf darajasi doimo 8% - 18% (XAVFSIZ - Yashil) oralig'ida bo'ladi.
+      // Faqatgina haqiqiy sun'iy vocoder (o'ta tekis linSfm > 0.65 va robotik pitchStd < 1.0) bo'lsa xavf oshiriladi.
+      if (linSfm > 0.65 && pitchStd < 1.0 && pvrDb < 12.0) {
+        instantRisk = 75;
+      } else if (linSfm > 0.55 && pitchStd < 1.5) {
+        instantRisk = 38;
+      } else {
+        // Tabiiy inson nutqi: 8% - 18% xavfsiz daraja
+        instantRisk = Math.max(8, Math.min(18, Math.round(10 + rms * 10)));
       }
 
-      // 2. Formant chuqurligi (PVR) - Inson vokal rezonansi
-      if (pvrDb >= 38.0) {
-        instantRisk = Math.max(4, instantRisk - 25);
-      } else if (pvrDb >= 28.0) {
-        instantRisk = Math.max(4, instantRisk - 15);
-      } else if (pvrDb < 24.0) {
-        instantRisk += Math.min(30, Math.round((24.0 - pvrDb) * 2.5 + 10));
-      }
-
-      // 3. Pitch Monotonligi (AI vs Inson intonatsiyasi)
-      if (pitchHistory.length >= 3 && estPitch > 60) {
-        if (pitchStd < 5.0 && pvrDb < 36.0) {
-          instantRisk += 45;
-        } else if (pitchStd < 10.0 && pvrDb < 36.0) {
-          instantRisk += 20;
-        } else if (pitchStd >= 14.0) {
-          instantRisk = Math.max(4, instantRisk - 20);
-        }
-      }
-
-      // 4. 8kHz kesilishi
-      if (hfRatio < 0.02 && estPitch > 60 && pvrDb < 40.0) {
-        instantRisk += 12;
-      }
-
-      instantRisk = Math.min(98, Math.max(4, Math.round(instantRisk * currentSensitivity)));
+      instantRisk = Math.min(98, Math.max(5, Math.round(instantRisk * currentSensitivity)));
+    } else {
+      // Sukunatda xavf minimal (8%)
+      instantRisk = 8;
     }
 
-    // Tezkor hujum va turg'un saqlash
-    if (rms >= 0.010 || isInjectingAI) {
+    // Turg'unlashtirish va sukunatda tezda xavfsiz (yashil) holatga qaytish
+    if (isInjectingAI) {
+      smoothedRisk = 96;
+    } else if (rms >= 0.008) {
       silenceCount = 0;
-      if (instantRisk > smoothedRisk) {
-        smoothedRisk = 0.65 * instantRisk + 0.35 * smoothedRisk;
-      } else {
-        smoothedRisk = 0.15 * instantRisk + 0.85 * smoothedRisk;
-      }
+      smoothedRisk = 0.30 * instantRisk + 0.70 * smoothedRisk;
     } else {
       silenceCount++;
-      if (silenceCount > 25) {
-        smoothedRisk = Math.max(4, smoothedRisk * 0.94);
-      }
+      // Gap to'xtaganda darhol xavfsiz holatga tushadi
+      smoothedRisk = Math.max(8, smoothedRisk * 0.82);
     }
 
     const currentScore = Math.round(smoothedRisk);
