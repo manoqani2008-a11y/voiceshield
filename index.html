@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Roboto+Mono:wght@500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=12">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#121316">
   <script>
@@ -221,10 +221,23 @@
 
           <!-- Sezgirlik sozlamasi -->
           <div class="in-call-test-strip" style="margin-top: 6px;">
-            <button class="test-pill-btn active glass-btn" id="btnToggleSensitivity" title="Aniqlash sezgirligini o'zgartirish">
+            <button class="test-pill-btn glass-btn" id="btnToggleSensitivity" title="Aniqlash sezgirligini o'zgartirish">
               <span class="pill-icon">⚡</span>
-              <span id="txtSensitivity">Sezgirlik: Yuqori (Gemini & TTS)</span>
+              <span id="txtSensitivity">Sezgirlik: Standart</span>
             </button>
+            <button class="test-pill-btn glass-btn" id="btnRunGeminiAudit" title="Google Gemini 1.5 Flash orqali chuqur kriminalistik tahlil">
+              <span class="pill-icon">✨</span>
+              <span id="txtGeminiAudit">Gemini AI Tahlil</span>
+            </button>
+          </div>
+
+          <!-- Gemini Audit Natijasi Qutisi -->
+          <div class="m3-card glass-card" id="boxGeminiResult" style="display: none; width: 100%; margin-top: 8px; padding: 12px 14px; text-align: left;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+              <span style="font-size: 11px; font-weight: 800; color: var(--m3-primary);" id="geminiAuditType">Gemini AI</span>
+              <span class="m3-tonal-badge" id="geminiAuditBadge">TEKSHIRILMOQDA</span>
+            </div>
+            <p style="font-size: 12px; margin: 0; color: var(--m3-on-surface);" id="geminiAuditReason">Tahlil ketmoqda...</p>
           </div>
 
           <!-- M3 Xavf Ogohlantirish Kartasi (Danger Banner) -->
@@ -555,6 +568,6 @@
 
   </div>
 
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>
