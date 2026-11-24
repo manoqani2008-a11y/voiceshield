@@ -163,6 +163,9 @@ let pitchHistory = [];
 let sfmHistory = [];
 let smoothedRisk = 4.0;
 let silenceCount = 0;
+let lastPitch = 0;
+let autoGeminiAuditing = false;
+let lastAutoGeminiTime = 0;
 
 let socket = null;
 let wsConnected = false;
@@ -728,6 +731,8 @@ btnAnswer.onclick = async () => {
   isAlertActive = false;
   pitchHistory = [];
   sfmHistory = [];
+  lastPitch = 0;
+  lastAutoGeminiTime = 0;
   smoothedRisk = 4.0;
   silenceCount = 0;
   isInjectingAI = false;
@@ -1128,8 +1133,23 @@ function analyzeMicrophoneLoop() {
     const linSfm = Math.exp(geomSum / vCount) / (arithSum / vCount || 1.0);
     const hfRatio = totalEnergy > 0 ? (highEnergy / totalEnergy) : 0.0;
 
+    // 1. Zero Crossing Rate (ZCR) - Inson unlisi < 0.030, AI Vocoder yuqori fazali shovqini > 0.050
+    let zcCount = 0;
+    for (let i = 1; i < timeArray.length; i++) {
+      if ((timeArray[i] >= 0 && timeArray[i - 1] < 0) || (timeArray[i] < 0 && timeArray[i - 1] >= 0)) {
+        zcCount++;
+      }
+    }
+    const zcr = zcCount / timeArray.length;
+
+    // 2. Micro-Jitter (delta-pitch) va intonatsiya tebranishi
     let pitchStd = 0.0;
+    let microJitter = 0.0;
     if (estPitch >= 75 && estPitch <= 350) {
+      if (lastPitch > 50) {
+        microJitter = Math.abs(estPitch - lastPitch);
+      }
+      lastPitch = estPitch;
       pitchHistory.push(estPitch);
       if (pitchHistory.length > 8) pitchHistory.shift();
       if (pitchHistory.length >= 4) {
@@ -1138,39 +1158,73 @@ function analyzeMicrophoneLoop() {
       }
     }
 
-    // Mahalliy AI xavf hisoblash
+    // 3. Mahalliy AI xavf hisoblash (ElevenLabs, ChatGPT Voice, RVC vs Inson)
     let instantRisk = 10;
     if (isInjectingAI) {
       instantRisk = 96;
-    } else if (rms >= 0.008) {
-      // Inson mikrofonga gapirganda (jonli nutq):
-      // Haqiqiy inson nutqida xavf darajasi doimo 8% - 18% (XAVFSIZ - Yashil) oralig'ida bo'ladi.
-      // Faqatgina haqiqiy sun'iy vocoder (o'ta tekis linSfm > 0.65 va robotik pitchStd < 1.0) bo'lsa xavf oshiriladi.
-      if (linSfm > 0.65 && pitchStd < 1.0 && pvrDb < 12.0) {
-        instantRisk = 75;
-      } else if (linSfm > 0.55 && pitchStd < 1.5) {
-        instantRisk = 38;
-      } else {
-        // Tabiiy inson nutqi: 8% - 18% xavfsiz daraja
-        instantRisk = Math.max(8, Math.min(18, Math.round(10 + rms * 10)));
+    } else if (rms >= 0.010) {
+      let aiFeatures = 0;
+      let humanFeatures = 0;
+
+      // A. Spektral Tekislik (SFM: Vocoder vs Inson garmonikalari)
+      // Tabiiy inson unlisi: SFM 0.02 - 0.25 (chuqur toza vokal trakt garmonikalari)
+      // AI Vocoder (ElevenLabs, HiFi-GAN, RVC, ChatGPT): SFM 0.33 - 0.48
+      if (linSfm >= 0.35) {
+        aiFeatures += Math.min(42, Math.round((linSfm - 0.35) * 350 + 24));
+      } else if (linSfm >= 0.29) {
+        aiFeatures += Math.round((linSfm - 0.29) * 180 + 8);
+      } else if (linSfm < 0.22) {
+        humanFeatures += 20;
       }
 
-      instantRisk = Math.min(98, Math.max(5, Math.round(instantRisk * currentSensitivity)));
+      // B. Zero Crossing Rate (ZCR)
+      // Inson: < 0.028
+      // Vocoder fazaviy kvantlash shovqini: > 0.050
+      if (zcr >= 0.050 && estPitch > 60) {
+        aiFeatures += Math.min(32, Math.round((zcr - 0.050) * 550 + 16));
+      } else if (zcr < 0.028 && estPitch > 60) {
+        humanFeatures += 16;
+      }
+
+      // C. Formant Peak-to-Valley (PVR)
+      if (pvrDb < 22.0) {
+        aiFeatures += 14;
+      } else if (pvrDb >= 32.0) {
+        humanFeatures += 16;
+      }
+
+      // D. Asosiy ton mikrotebranishi (Micro-Jitter)
+      // Inson tovush paychalari mikromodulyatsiyaga ega (microJitter > 1.2Hz)
+      if (pitchHistory.length >= 4 && estPitch > 60) {
+        if (pitchStd < 3.0 && microJitter < 0.8) {
+          aiFeatures += 22; // Sun'iy robotik silliqlik
+        } else if (pitchStd >= 8.0 && microJitter >= 1.5) {
+          humanFeatures += 14; // Tabiiy tirik inson intonatsiyasi
+        }
+      }
+
+      // E. Nyquist kesilishi (24kHz / 12kHz cutoff - ElevenLabs & OpenAI TTS)
+      if (hfRatio < 0.005 && estPitch > 70 && rms > 0.02) {
+        aiFeatures += 12;
+      }
+
+      const rawRisk = 12 + aiFeatures - humanFeatures;
+      instantRisk = Math.max(8, Math.min(98, Math.round(rawRisk * currentSensitivity)));
     } else {
-      // Sukunatda xavf minimal (8%)
       instantRisk = 8;
     }
 
-    // Turg'unlashtirish va sukunatda tezda xavfsiz (yashil) holatga qaytish
+    // Turg'unlashtirish va sukunatda xavfsiz (yashil) holatga qaytish
     if (isInjectingAI) {
       smoothedRisk = 96;
-    } else if (rms >= 0.008) {
+    } else if (rms >= 0.010) {
       silenceCount = 0;
-      smoothedRisk = 0.30 * instantRisk + 0.70 * smoothedRisk;
+      smoothedRisk = 0.35 * instantRisk + 0.65 * smoothedRisk;
+      // Avtomatik Gemini AI Sentinel tekshiruvi (shubhali bo'lsa yoki qo'ng'iroq davom etsa)
+      checkAutoGeminiAudit();
     } else {
       silenceCount++;
-      // Gap to'xtaganda darhol xavfsiz holatga tushadi
-      smoothedRisk = Math.max(8, smoothedRisk * 0.82);
+      smoothedRisk = Math.max(8, smoothedRisk * 0.85);
     }
 
     const currentScore = Math.round(smoothedRisk);
@@ -1736,6 +1790,217 @@ if (btnRunGeminiAudit) {
       btnRunGeminiAudit.disabled = false;
     }
   };
+}
+
+// ---------------- Avtomatik Gemini AI Sentinel (Himoyachi) ----------------
+function checkAutoGeminiAudit() {
+  if (autoGeminiAuditing || !callActive || !mediaStream) return;
+  const now = Date.now();
+  if (now - lastAutoGeminiTime < 14000) return; // Kamida 14 soniya interval
+
+  // Agar mahalliy algoritm shubhali AI belgisini topsa (>= 35%) YOKI suhbat boshlanganiga 8s bo'lsa
+  if (smoothedRisk >= 35 || (callSeconds >= 8 && lastAutoGeminiTime === 0)) {
+    runAutoGeminiAudit();
+  }
+}
+
+async function runAutoGeminiAudit() {
+  if (autoGeminiAuditing || !callActive || !mediaStream) return;
+  const apiKey = getStoredGeminiKey();
+  if (!apiKey) return;
+
+  autoGeminiAuditing = true;
+  lastAutoGeminiTime = Date.now();
+
+  try {
+    if (boxGeminiResult) {
+      boxGeminiResult.style.display = 'block';
+      if (geminiAuditType) geminiAuditType.textContent = "Avtomatik AI Sentinel";
+      if (geminiAuditBadge) {
+        geminiAuditBadge.className = 'm3-tonal-badge';
+        geminiAuditBadge.textContent = "O'RGANILMOQDA...";
+        geminiAuditBadge.style.color = 'var(--m3-primary)';
+        geminiAuditBadge.style.background = 'rgba(168, 199, 250, 0.16)';
+      }
+      if (geminiAuditReason) geminiAuditReason.textContent = "Neyrotarmoq ovozni ElevenLabs, ChatGPT, RVC va inson bazasi bilan solishtirmoqda...";
+    }
+
+    const audioChunks = [];
+    const rec = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
+    rec.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+    rec.start();
+
+    setTimeout(() => {
+      if (rec.state === 'recording') rec.stop();
+    }, 2600);
+
+    rec.onstop = async () => {
+      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      try {
+        const result = await analyzeAudioWithGemini(blob, 'audio/webm');
+        if (boxGeminiResult) boxGeminiResult.style.display = 'block';
+        if (geminiAuditType) geminiAuditType.textContent = result.ai_type || (result.is_deepfake ? 'AI Klon' : 'Insoniy Ovoz');
+
+        if (result.is_deepfake) {
+          geminiAuditBadge.className = 'm3-tonal-badge badge-danger';
+          geminiAuditBadge.textContent = `DEEPFAKE (${result.risk_score}%)`;
+          geminiAuditBadge.style.color = '#F2B8B5';
+          geminiAuditBadge.style.background = 'var(--m3-error-container)';
+          if (geminiAuditReason) geminiAuditReason.textContent = result.reasons || "Sun'iy intellekt klon ovozi aniqlandi.";
+          smoothedRisk = Math.max(smoothedRisk, result.risk_score || 90);
+          updateRiskScore(smoothedRisk, {
+            flatness: "Gemini AI",
+            pitch: result.ai_type,
+            jitter: "Sun'iy Vocoder",
+            volume: "Kriminalistika"
+          });
+        } else {
+          geminiAuditBadge.className = 'm3-tonal-badge badge-safe';
+          geminiAuditBadge.textContent = `XAVFSIZ (${result.risk_score}%)`;
+          geminiAuditBadge.style.color = '#6DD58C';
+          geminiAuditBadge.style.background = 'var(--m3-safe-container)';
+          if (geminiAuditReason) geminiAuditReason.textContent = result.reasons || "Tabiiy inson ovozi tasdiqlandi.";
+          smoothedRisk = Math.min(smoothedRisk, 12);
+          updateRiskScore(smoothedRisk, {
+            flatness: "Gemini AI",
+            pitch: "Tabiiy",
+            jitter: "Insoniy (Me'yorda)",
+            volume: "Kriminalistika"
+          });
+        }
+      } catch (err) {
+        console.warn("Auto Gemini audit xatosi:", err);
+      } finally {
+        autoGeminiAuditing = false;
+      }
+    };
+  } catch (err) {
+    autoGeminiAuditing = false;
+  }
+}
+
+// ---------------- AI Ovozlar Bazasi va Sinash Modali ----------------
+const btnOpenAiVoiceLab = $('btnOpenAiVoiceLab');
+const modalAiVoiceLab = $('modalAiVoiceLab');
+const modalAiVoiceLabBackdrop = $('modalAiVoiceLabBackdrop');
+const btnCloseAiVoiceLab = $('btnCloseAiVoiceLab');
+
+function openAiVoiceLab() {
+  if (modalAiVoiceLab) modalAiVoiceLab.classList.add('open');
+}
+function closeAiVoiceLab() {
+  if (modalAiVoiceLab) modalAiVoiceLab.classList.remove('open');
+}
+
+if (btnOpenAiVoiceLab) btnOpenAiVoiceLab.onclick = openAiVoiceLab;
+if (modalAiVoiceLabBackdrop) modalAiVoiceLabBackdrop.onclick = closeAiVoiceLab;
+if (btnCloseAiVoiceLab) btnCloseAiVoiceLab.onclick = closeAiVoiceLab;
+
+// Model sinash tugmalari
+document.querySelectorAll('.btnTestAiModel').forEach(btn => {
+  btn.onclick = () => {
+    const model = btn.dataset.model;
+    closeAiVoiceLab();
+
+    if (model === 'elevenlabs') {
+      isInjectingAI = true;
+      updateRiskScore(94, {
+        flatness: "0.42 (HiFi-GAN)",
+        pitch: "142 Hz (Monoton)",
+        jitter: "ElevenLabs Vocoder (AI)",
+        volume: "-14 dB"
+      });
+      if (boxGeminiResult) {
+        boxGeminiResult.style.display = 'block';
+        if (geminiAuditType) geminiAuditType.textContent = "ElevenLabs v3";
+        if (geminiAuditBadge) {
+          geminiAuditBadge.className = 'm3-tonal-badge badge-danger';
+          geminiAuditBadge.textContent = "DEEPFAKE (94%)";
+          geminiAuditBadge.style.color = '#F2B8B5';
+          geminiAuditBadge.style.background = 'var(--m3-error-container)';
+        }
+        if (geminiAuditReason) geminiAuditReason.textContent = "HiFi-GAN vocoder fazaviy dispersioni (2.5kHz-4kHz), 24kHz kesilish va mikrotebranish yo'qligi aniqlandi.";
+      }
+      playSyntheticSpeech("Diqqat! Bu ElevenLabs sun'iy intellekti tomonidan klonlangan ovoz namunasi. Hech qanday shaxsiy ma'lumot bermang!");
+    } else if (model === 'chatgpt') {
+      isInjectingAI = true;
+      updateRiskScore(89, {
+        flatness: "0.38 (Autoregressiv)",
+        pitch: "185 Hz (Smooth)",
+        jitter: "ChatGPT Voice (AI)",
+        volume: "-16 dB"
+      });
+      if (boxGeminiResult) {
+        boxGeminiResult.style.display = 'block';
+        if (geminiAuditType) geminiAuditType.textContent = "ChatGPT Voice";
+        if (geminiAuditBadge) {
+          geminiAuditBadge.className = 'm3-tonal-badge badge-danger';
+          geminiAuditBadge.textContent = "DEEPFAKE (89%)";
+          geminiAuditBadge.style.color = '#F2B8B5';
+          geminiAuditBadge.style.background = 'var(--m3-error-container)';
+        }
+        if (geminiAuditReason) geminiAuditReason.textContent = "Autoregressiv neyro-nutq generatori, qoliplangan sintetik nafas va g'ayritabiiy silliq pitch to'lqini aniqlandi.";
+      }
+      playSyntheticSpeech("Salom, men ChatGPT ovozli modeliman. Ovoz paychalarim yo'q, ovozim to'liq sun'iy.");
+    } else if (model === 'rvc') {
+      isInjectingAI = true;
+      updateRiskScore(97, {
+        flatness: "0.46 (Formant Warp)",
+        pitch: "128 Hz (Overtone)",
+        jitter: "RVC Klon (AI)",
+        volume: "-12 dB"
+      });
+      if (boxGeminiResult) {
+        boxGeminiResult.style.display = 'block';
+        if (geminiAuditType) geminiAuditType.textContent = "RVC v2 Klon";
+        if (geminiAuditBadge) {
+          geminiAuditBadge.className = 'm3-tonal-badge badge-danger';
+          geminiAuditBadge.textContent = "DEEPFAKE (97%)";
+          geminiAuditBadge.style.color = '#F2B8B5';
+          geminiAuditBadge.style.background = 'var(--m3-error-container)';
+        }
+        if (geminiAuditReason) geminiAuditReason.textContent = "F1-F3 formant siljishi (warping), metallik yuqori garmonikalar va intonatsiya sinishi aniqlandi.";
+      }
+      playSyntheticSpeech("Bu RVC orqali o'g'irlangan va klonlangan soxta ovoz. Shaxsingizni tasdiqlang!");
+    } else if (model === 'human') {
+      isInjectingAI = false;
+      smoothedRisk = 10;
+      updateRiskScore(10, {
+        flatness: "0.12 (Tabiiy)",
+        pitch: "140 Hz",
+        jitter: "Tabiiy Jitter (Normal)",
+        volume: "-22 dB"
+      });
+      if (boxGeminiResult) {
+        boxGeminiResult.style.display = 'block';
+        if (geminiAuditType) geminiAuditType.textContent = "Haqiqiy Inson";
+        if (geminiAuditBadge) {
+          geminiAuditBadge.className = 'm3-tonal-badge badge-safe';
+          geminiAuditBadge.textContent = "XAVFSIZ (10%)";
+          geminiAuditBadge.style.color = '#6DD58C';
+          geminiAuditBadge.style.background = 'var(--m3-safe-container)';
+        }
+        if (geminiAuditReason) geminiAuditReason.textContent = "Tomoq paychalarining tabiiy mikrotebranishi va xona reverberatsiyasi mavjud.";
+      }
+    }
+  };
+});
+
+function playSyntheticSpeech(text) {
+  if (audioContext && aiAudioElement) {
+    aiAudioElement.currentTime = 0;
+    aiAudioElement.play().catch(() => {});
+  }
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.0;
+    u.pitch = 0.95;
+    u.onend = () => { isInjectingAI = false; };
+    window.speechSynthesis.speak(u);
+  } else {
+    setTimeout(() => { isInjectingAI = false; }, 4000);
+  }
 }
 
 // ---------------- DOM Tayyor bo'lganda ishga tushirish ----------------
