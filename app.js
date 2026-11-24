@@ -1158,85 +1158,67 @@ function analyzeMicrophoneLoop() {
       }
     }
 
-    // 3. Ovoz turini aniqlash: Insoniy nafas/entikish vs Jarangli nutq
-    // Insoniy nafas olish, entikish ("intasa"), uf tortish, pichirlash va tovushsiz undoshlar:
-    // Bu tovushlarda ovoz paychalari tebranmaydi (estPitch == 0 yoki pitchClarity juda past).
-    // Tabiiy nafas turbulent havo oqimi bo'lib, uning SFM va ZCR ko'rsatkichlari yuqori bo'ladi.
-    // Bu AI vocoder emas — bu 100% inson tirikligining belgisidir!
-    const isVoiced = estPitch >= 75 && estPitch <= 350 && (pitchClarity || 0) >= 0.012;
-    const isHumanBreathOrSigh = (!isVoiced || linSfm > 0.62 || zcr > 0.22);
+    // 3. Ovoz turini aniqlash: Nafas/Jimlik vs Haqiqiy Nutq
+    // Insoniy nafas yoki entikish — faqat tovush mayin bo'lganda (rms < 0.022) va pitch bo'lmaganda!
+    const isGentleBreathOrSilence = (estPitch === 0 || (pitchClarity || 0) < 0.006) && rms < 0.022;
 
     let instantRisk = 8;
     if (isInjectingAI) {
       instantRisk = 96;
-    } else if (rms >= 0.009) {
-      if (isHumanBreathOrSigh) {
-        // Insoniy nafas, entikish, uf tortish yoki pichirlash — 100% insoniy belgi (XAVFSIZ)!
-        instantRisk = Math.max(6, Math.min(14, Math.round(8 + rms * 8)));
-      } else {
-        // Jarangli nutq (unlilar va jarangli tovushlar)
-        // Faqat mana shu yerda haqiqiy sun'iy vocoder anomaliyalari o'lchanadi!
-        let aiFeatures = 0;
-        let humanFeatures = 0;
-
-        // A. Spektral Tekislik (SFM: Vocoder vs Inson garmonikalari)
-        // Tabiiy inson jarangli unlisida SFM < 0.25 (toza chuqur garmonikalar)
-        // AI Vocoder (ElevenLabs, HiFi-GAN, RVC, ChatGPT): SFM 0.34 - 0.52
-        if (linSfm >= 0.35 && linSfm <= 0.55) {
-          aiFeatures += Math.min(40, Math.round((linSfm - 0.35) * 350 + 22));
-        } else if (linSfm >= 0.30 && linSfm <= 0.55) {
-          aiFeatures += Math.round((linSfm - 0.30) * 160 + 8);
-        } else if (linSfm < 0.24) {
-          humanFeatures += 24;
-        }
-
-        // B. Zero Crossing Rate (ZCR) jarangli nutqda
-        // Inson unlisida ZCR < 0.028
-        // Vocoder yuqori fazaviy kvantlash shovqini: 0.045 - 0.12
-        if (zcr >= 0.048 && zcr <= 0.14) {
-          aiFeatures += Math.min(30, Math.round((zcr - 0.048) * 500 + 15));
-        } else if (zcr < 0.028) {
-          humanFeatures += 18;
-        }
-
-        // C. Formant Peak-to-Valley (PVR)
-        if (pvrDb < 22.0) {
-          aiFeatures += 14;
-        } else if (pvrDb >= 30.0) {
-          humanFeatures += 18;
-        }
-
-        // D. Asosiy ton mikrotebranishi (Micro-Jitter)
-        if (pitchHistory.length >= 4 && estPitch > 60) {
-          if (pitchStd < 3.0 && microJitter < 0.8) {
-            aiFeatures += 20; // Sun'iy robotik silliqlik
-          } else if (pitchStd >= 7.0 && microJitter >= 1.2) {
-            humanFeatures += 16; // Tabiiy tirik inson intonatsiyasi
-          }
-        }
-
-        // E. Nyquist kesilishi (24kHz / 12kHz cutoff - ElevenLabs & OpenAI TTS)
-        if (hfRatio < 0.005 && estPitch > 70 && rms > 0.02) {
-          aiFeatures += 12;
-        }
-
-        const rawRisk = 10 + aiFeatures - humanFeatures;
-        instantRisk = Math.max(8, Math.min(98, Math.round(rawRisk * currentSensitivity)));
-      }
-    } else {
+    } else if (isGentleBreathOrSilence || rms < 0.010) {
+      // Nafas olish, entikish, uf tortish yoki sukunat — 100% insoniy biologik belgi (XAVFSIZ)!
       instantRisk = 8;
+    } else {
+      // Haqiqiy nutq (Inson yoki AI) - Har bir belgi qat'iy tekshiriladi
+      let aiFeatures = 0;
+      let humanFeatures = 0;
+
+      // A. Formant Peak-to-Valley (PVR):
+      // Inson vokal traktida keskin rezonans bor (PVR >= 25 dB)
+      // Telefon dinamigidan yoki vocoderdan chiqqan AI ovozida esa oraliq shovqin tufayli PVR past (< 21 dB)
+      if (pvrDb < 21.0) {
+        aiFeatures += 26;
+      } else if (pvrDb >= 26.0) {
+        humanFeatures += 26;
+      }
+
+      // B. Asosiy ton mikrotebranishi (Micro-Jitter & Pitch Std)
+      // Tirik inson tovush paychalari beqaror (microJitter >= 1.5 Hz va pitchStd >= 5.5 Hz)
+      // AI vocoderi (ElevenLabs, ChatGPT, TikTok) silliq sintetik egri chiziqqa ega (microJitter < 0.9 Hz)
+      if (estPitch > 60) {
+        if (microJitter < 0.9 || pitchStd < 3.8) {
+          aiFeatures += 32; // Sun'iy vocoder intonatsiyasi
+        } else if (microJitter >= 1.5 && pitchStd >= 5.5) {
+          humanFeatures += 30; // Biologik insoniy mikromodulyatsiya
+        }
+      }
+
+      // C. 24kHz / 12kHz Nyquist kesilishi (ElevenLabs & OpenAI TTS generatorlari)
+      if (hfRatio < 0.007 && estPitch > 65) {
+        aiFeatures += 16;
+      } else if (hfRatio >= 0.015) {
+        humanFeatures += 14;
+      }
+
+      // D. Zero Crossing Rate (ZCR)
+      if (zcr >= 0.048 && zcr <= 0.16 && estPitch > 60) {
+        aiFeatures += 16;
+      } else if (zcr < 0.028 && estPitch > 60) {
+        humanFeatures += 14;
+      }
+
+      const rawRisk = 12 + aiFeatures - humanFeatures;
+      instantRisk = Math.max(8, Math.min(98, Math.round(rawRisk * currentSensitivity)));
     }
 
     // Turg'unlashtirish va sukunatda xavfsiz (yashil) holatga qaytish
     if (isInjectingAI) {
       smoothedRisk = 96;
-    } else if (rms >= 0.009) {
+    } else if (rms >= 0.010 && !isGentleBreathOrSilence) {
       silenceCount = 0;
-      smoothedRisk = 0.30 * instantRisk + 0.70 * smoothedRisk;
-      // Avtomatik Gemini AI Sentinel tekshiruvi (faqat jarangli shubhali nutqda)
-      if (instantRisk >= 50 && !isHumanBreathOrSigh) {
-        checkAutoGeminiAudit();
-      }
+      smoothedRisk = 0.35 * instantRisk + 0.65 * smoothedRisk;
+      // Agar nutqda AI belgilari ko'rinsa yoki qo'ng'iroq davom etsa, Avtomatik Gemini AI tekshiradi
+      checkAutoGeminiAudit();
     } else {
       silenceCount++;
       smoothedRisk = Math.max(8, smoothedRisk * 0.85);
@@ -1259,11 +1241,11 @@ function analyzeMicrophoneLoop() {
     } else {
       let jitterLabel = "Insoniy (Me'yorda)";
       if (currentScore >= 65) {
-        jitterLabel = "Sun'iy Vocoder (AI / Gemini)";
+        jitterLabel = "Sun'iy Vocoder (AI / Deepfake)";
       } else if (currentScore >= 35) {
-        jitterLabel = isHumanBreathOrSigh ? "Insoniy nafas / entikish" : "Shubhali tebranish";
+        jitterLabel = isGentleBreathOrSilence ? "Insoniy nafas / entikish" : "Shubhali tebranish";
       } else {
-        jitterLabel = isHumanBreathOrSigh ? "Tabiiy nafas / entikish" : "Insoniy (Me'yorda)";
+        jitterLabel = isGentleBreathOrSilence ? "Tabiiy nafas / sukunat" : "Insoniy (Me'yorda)";
       }
       updateRiskScore(currentScore, {
         flatness: linSfm.toFixed(2),
@@ -1703,7 +1685,7 @@ async function analyzeAudioWithGemini(audioBlob, mimeType = "audio/webm") {
       {
         parts: [
           {
-            text: "Ushbu audioni eshiting va uning haqiqiy inson ovozimi yoki sun'iy intellekt (ElevenLabs, ChatGPT, Gemini, RVC, TTS) tomonidan yaratilgan ovoz ekanligini chuqur tahlil qiling. Faqat JSON formatida javob bering."
+            text: "DIQQAT AUDIO-KRIMINALISTIKA EKSPERTIZASI: Ushbu audioda inson ovozini taqlid qiluvchi sun'iy intellekt (ElevenLabs, ChatGPT Voice, RVC klon, TikTok AI, TTS) bormi yoki bu tirik insonmi? Ovoz ravon bo'lsa ham uning neyro-vocoder fazaviy dispersioni, 24kHz kesilishi va mikrotebranishi yo'qligini sinchiklab tekshiring. Agar sun'iy belgi bo'lsa is_deepfake=true va risk_score=88-98 bering. Faqat biologik tovush paychalari mikrotebranishi bilan gapirayotgan tirik inson bo'lsagina is_deepfake=false, risk_score=10 bering. Faqat qat'iy JSON formatida javob bering."
           },
           {
             inline_data: {
@@ -1822,10 +1804,10 @@ if (btnRunGeminiAudit) {
 function checkAutoGeminiAudit() {
   if (autoGeminiAuditing || !callActive || !mediaStream) return;
   const now = Date.now();
-  if (now - lastAutoGeminiTime < 14000) return; // Kamida 14 soniya interval
+  if (now - lastAutoGeminiTime < 8000) return; // 8 soniya interval
 
-  // Agar mahalliy algoritm shubhali AI belgisini topsa (>= 35%) YOKI suhbat boshlanganiga 8s bo'lsa
-  if (smoothedRisk >= 35 || (callSeconds >= 8 && lastAutoGeminiTime === 0)) {
+  // Agar mahalliy algoritm shubhali AI belgisini topsa (>= 28%) YOKI suhbat boshlanganiga 4s bo'lsa
+  if (smoothedRisk >= 28 || (callSeconds >= 4 && lastAutoGeminiTime === 0)) {
     runAutoGeminiAudit();
   }
 }
