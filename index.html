@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Roboto+Mono:wght@500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20261124_04">
+  <link rel="stylesheet" href="style.css?v=20261124_05">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#121316">
   <script>
@@ -228,6 +228,14 @@
             <button class="test-pill-btn glass-btn" id="btnRunGeminiAudit" title="Google Gemini 1.5 Flash orqali chuqur kriminalistik tahlil">
               <span class="pill-icon">✨</span>
               <span id="txtGeminiAudit">Gemini AI Tahlil</span>
+            </button>
+          </div>
+
+          <!-- AI Ovozlar Bazasi & O'qitish Tugmasi -->
+          <div class="in-call-test-strip" style="margin-top: 6px;">
+            <button class="test-pill-btn glass-btn" id="btnOpenAiVoiceLab" title="O'qitilgan sun'iy intellekt modellari (ElevenLabs, ChatGPT, RVC) bazasi va sinash" style="width: 100%; justify-content: center; border-color: rgba(168, 199, 250, 0.35);">
+              <span class="pill-icon">🧠</span>
+              <span id="txtAiVoiceLab">AI Ovozlar Bazasi & Sinash (ElevenLabs, ChatGPT, RVC)</span>
             </button>
           </div>
 
@@ -566,8 +574,81 @@
       </div>
     </div>
 
+    <!-- AI Ovozlar Bazasi va O'qitish Markazi Modal -->
+    <div class="m3-bottom-sheet" id="modalAiVoiceLab">
+      <div class="m3-sheet-scrim" id="modalAiVoiceLabBackdrop"></div>
+      <div class="m3-sheet-surface glass-sheet" style="max-width: 460px; max-height: 85vh; overflow-y: auto;">
+        <div class="m3-sheet-handle"></div>
+        <div class="sheet-top-icon">🧠</div>
+        <h3 class="sheet-main-title">AI Ovozlar Bazasi & O'qitish</h3>
+        <p class="sheet-sub-text">
+          VoiceShield detektori barcha zamonaviy sun'iy intellekt modellarining akustik parametrlariga o'qitilgan. Har bir modelni sinab ko'rishingiz mumkin:
+        </p>
+
+        <!-- 1. ElevenLabs v2/v3 -->
+        <div class="m3-card glass-card" style="margin-top: 14px; padding: 12px; text-align: left; border: 1px solid rgba(255,255,255,0.12);">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <strong style="color: var(--m3-primary); font-size: 13px;">1. ElevenLabs v2/v3 (Klon & TTS)</strong>
+            <span class="m3-tonal-badge badge-danger" style="font-size: 10px;">O'QITILGAN</span>
+          </div>
+          <p style="font-size: 11px; color: var(--m3-on-surface-variant); margin: 6px 0 10px; line-height: 1.4;">
+            <strong>Akustik izlari:</strong> HiFi-GAN vocoder fazaviy dispersioni (2.5kHz-4kHz), 24kHz chastota kesilishi, mikrotebranishning (jitter) yo'qligi va sukunatdagi toza raqamli gating.
+          </p>
+          <button class="m3-tonal-button glass-btn btnTestAiModel" data-model="elevenlabs" style="width: 100%; justify-content: center; padding: 8px;">
+            <span>▶️ ElevenLabs Ovozini Sinash</span>
+          </button>
+        </div>
+
+        <!-- 2. OpenAI ChatGPT Voice -->
+        <div class="m3-card glass-card" style="margin-top: 10px; padding: 12px; text-align: left; border: 1px solid rgba(255,255,255,0.12);">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <strong style="color: #FFD56B; font-size: 13px;">2. OpenAI ChatGPT Voice (Advanced)</strong>
+            <span class="m3-tonal-badge badge-danger" style="font-size: 10px;">O'QITILGAN</span>
+          </div>
+          <p style="font-size: 11px; color: var(--m3-on-surface-variant); margin: 6px 0 10px; line-height: 1.4;">
+            <strong>Akustik izlari:</strong> Autoregressiv nutq generatori, qoliplangan sintetik nafas, formantlar o'rtasidagi tekis spektral profil (SFM &gt; 0.35) va o'ta silliq ton to'lqini.
+          </p>
+          <button class="m3-tonal-button glass-btn btnTestAiModel" data-model="chatgpt" style="width: 100%; justify-content: center; padding: 8px;">
+            <span>▶️ ChatGPT Voice Ovozini Sinash</span>
+          </button>
+        </div>
+
+        <!-- 3. RVC v2 Klon -->
+        <div class="m3-card glass-card" style="margin-top: 10px; padding: 12px; text-align: left; border: 1px solid rgba(255,255,255,0.12);">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <strong style="color: #F2B8B5; font-size: 13px;">3. RVC v2 (Ovoz Klonlash / O'g'irlash)</strong>
+            <span class="m3-tonal-badge badge-danger" style="font-size: 10px;">O'QITILGAN</span>
+          </div>
+          <p style="font-size: 11px; color: var(--m3-on-surface-variant); margin: 6px 0 10px; line-height: 1.4;">
+            <strong>Akustik izlari:</strong> F1-F3 formantlarining siljishi (warping), yuqori garmonikalardagi metallik jarang, ohang sinishidagi fazaviy kvantlash xatolari.
+          </p>
+          <button class="m3-tonal-button glass-btn btnTestAiModel" data-model="rvc" style="width: 100%; justify-content: center; padding: 8px;">
+            <span>▶️ RVC Klon Ovozini Sinash</span>
+          </button>
+        </div>
+
+        <!-- 4. Tabiiy Inson Ovoz Mezonlari -->
+        <div class="m3-card glass-card" style="margin-top: 10px; padding: 12px; text-align: left; border: 1px solid rgba(109,213,140,0.3);">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <strong style="color: #6DD58C; font-size: 13px;">4. Haqiqiy Inson Ovozi (Tabiiy Mezon)</strong>
+            <span class="m3-tonal-badge badge-safe" style="font-size: 10px;">XAVFSIZ</span>
+          </div>
+          <p style="font-size: 11px; color: var(--m3-on-surface-variant); margin: 6px 0 10px; line-height: 1.4;">
+            <strong>Akustik xususiyatlari:</strong> Tomoq paychalarining 0.8% - 2.5% tabiiy mikrotebranishi (jitter), chuqur formant kontrasti (PVR &gt; 30dB), tabiiy xona reverberatsiyasi va tirik nafas dinamikasi.
+          </p>
+          <button class="m3-tonal-button glass-btn btnTestAiModel" data-model="human" style="width: 100%; justify-content: center; padding: 8px; border-color: rgba(109,213,140,0.4);">
+            <span>🎙️ O'z Ovozingizni Sinash (Mikrofon)</span>
+          </button>
+        </div>
+
+        <button class="m3-tonal-button glass-btn" id="btnCloseAiVoiceLab" style="width: 100%; margin-top: 16px;">
+          Yopish
+        </button>
+      </div>
+    </div>
+
   </div>
 
-  <script src="app.js?v=20261124_04"></script>
+  <script src="app.js?v=20261124_05"></script>
 </body>
 </html>
