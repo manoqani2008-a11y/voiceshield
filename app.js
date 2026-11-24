@@ -1537,43 +1537,42 @@ const geminiAuditType = $('geminiAuditType');
 const geminiAuditBadge = $('geminiAuditBadge');
 const geminiAuditReason = $('geminiAuditReason');
 
+let vercelGeminiKey = "";
+
 function getStoredGeminiKey() {
   const enc = "QVEuQWI4Uk42SUYtLUZlSERoQkoxSWQ0NVU3WDUwMHJBRldrSVc2cngzRUJrQkZyLXR5MlE=";
   const defKey = typeof atob === 'function' ? atob(enc) : "";
-  return localStorage.getItem('voiceShield_geminiApiKey') || defKey;
+  return localStorage.getItem('voiceShield_geminiApiKey') || vercelGeminiKey || defKey;
 }
 
-function checkGeminiApiStatus() {
-  const localKey = getStoredGeminiKey();
-  if (localKey) {
+async function checkGeminiApiStatus() {
+  try {
+    const res = await fetch('/api/gemini/status');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.has_key && data.key) {
+        vercelGeminiKey = data.key;
+      }
+    }
+  } catch (e) {
+    // Offline or static preview fallback
+  }
+
+  const activeKey = getStoredGeminiKey();
+  if (activeKey) {
     if (wsStatusText) wsStatusText.textContent = "⚡ Gemini AI Faol";
     if (wsIndicator) wsIndicator.style.background = "#4ade80";
     if (geminiKeyStatusNotice) {
-      const masked = localKey.length > 8 ? `${localKey.slice(0, 6)}...${localKey.slice(-4)}` : 'Ulangan';
+      const masked = activeKey.length > 8 ? `${activeKey.slice(0, 6)}...${activeKey.slice(-4)}` : 'Ulangan';
       geminiKeyStatusNotice.innerHTML = `✅ <strong>Gemini API Kaliti faol:</strong> <code>${masked}</code>`;
     }
-    return;
+  } else {
+    if (wsStatusText) wsStatusText.textContent = "Lokal DSP";
+    if (wsIndicator) wsIndicator.style.background = "#eab308";
+    if (geminiKeyStatusNotice) {
+      geminiKeyStatusNotice.innerHTML = "Hozircha API kalit kiritilmagan (lokal DSP dvigateli ishlamoqda).";
+    }
   }
-
-  fetch('/api/gemini/status')
-    .then(res => res.json())
-    .then(data => {
-      if (data.has_key) {
-        if (wsStatusText) wsStatusText.textContent = "⚡ Gemini AI Ulangan";
-        if (wsIndicator) wsIndicator.style.background = "#4ade80";
-        if (geminiKeyStatusNotice) {
-          geminiKeyStatusNotice.innerHTML = `✅ <strong>API Kalit faol:</strong> <code>${data.masked_key}</code>`;
-        }
-      } else {
-        if (wsStatusText) wsStatusText.textContent = "Lokal AI";
-        if (geminiKeyStatusNotice) {
-          geminiKeyStatusNotice.innerHTML = "Hozircha API kalit kiritilmagan (lokal DSP dvigateli ishlamoqda).";
-        }
-      }
-    })
-    .catch(() => {
-      if (wsStatusText) wsStatusText.textContent = "Lokal AI";
-    });
 }
 
 checkGeminiApiStatus();
