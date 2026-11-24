@@ -1094,7 +1094,7 @@ function analyzeMicrophoneLoop() {
     analyser.getFloatTimeDomainData(timeArray);
 
     const sampleRate = (audioContext && audioContext.sampleRate) || 48000;
-    const { pitch: estPitch, rms } = detectPitchAutocorrelation(timeArray, sampleRate);
+    const { pitch: estPitch, rms, clarity: pitchClarity } = detectPitchAutocorrelation(timeArray, sampleRate);
     const db = rms > 0.0001 ? Math.round(20 * Math.log10(rms)) : -60;
 
     const nyquist = sampleRate / 2;
@@ -1158,58 +1158,71 @@ function analyzeMicrophoneLoop() {
       }
     }
 
-    // 3. Mahalliy AI xavf hisoblash (ElevenLabs, ChatGPT Voice, RVC vs Inson)
-    let instantRisk = 10;
+    // 3. Ovoz turini aniqlash: Insoniy nafas/entikish vs Jarangli nutq
+    // Insoniy nafas olish, entikish ("intasa"), uf tortish, pichirlash va tovushsiz undoshlar:
+    // Bu tovushlarda ovoz paychalari tebranmaydi (estPitch == 0 yoki pitchClarity juda past).
+    // Tabiiy nafas turbulent havo oqimi bo'lib, uning SFM va ZCR ko'rsatkichlari yuqori bo'ladi.
+    // Bu AI vocoder emas — bu 100% inson tirikligining belgisidir!
+    const isVoiced = estPitch >= 75 && estPitch <= 350 && (pitchClarity || 0) >= 0.012;
+    const isHumanBreathOrSigh = (!isVoiced || linSfm > 0.62 || zcr > 0.22);
+
+    let instantRisk = 8;
     if (isInjectingAI) {
       instantRisk = 96;
-    } else if (rms >= 0.010) {
-      let aiFeatures = 0;
-      let humanFeatures = 0;
+    } else if (rms >= 0.009) {
+      if (isHumanBreathOrSigh) {
+        // Insoniy nafas, entikish, uf tortish yoki pichirlash — 100% insoniy belgi (XAVFSIZ)!
+        instantRisk = Math.max(6, Math.min(14, Math.round(8 + rms * 8)));
+      } else {
+        // Jarangli nutq (unlilar va jarangli tovushlar)
+        // Faqat mana shu yerda haqiqiy sun'iy vocoder anomaliyalari o'lchanadi!
+        let aiFeatures = 0;
+        let humanFeatures = 0;
 
-      // A. Spektral Tekislik (SFM: Vocoder vs Inson garmonikalari)
-      // Tabiiy inson unlisi: SFM 0.02 - 0.25 (chuqur toza vokal trakt garmonikalari)
-      // AI Vocoder (ElevenLabs, HiFi-GAN, RVC, ChatGPT): SFM 0.33 - 0.48
-      if (linSfm >= 0.35) {
-        aiFeatures += Math.min(42, Math.round((linSfm - 0.35) * 350 + 24));
-      } else if (linSfm >= 0.29) {
-        aiFeatures += Math.round((linSfm - 0.29) * 180 + 8);
-      } else if (linSfm < 0.22) {
-        humanFeatures += 20;
-      }
-
-      // B. Zero Crossing Rate (ZCR)
-      // Inson: < 0.028
-      // Vocoder fazaviy kvantlash shovqini: > 0.050
-      if (zcr >= 0.050 && estPitch > 60) {
-        aiFeatures += Math.min(32, Math.round((zcr - 0.050) * 550 + 16));
-      } else if (zcr < 0.028 && estPitch > 60) {
-        humanFeatures += 16;
-      }
-
-      // C. Formant Peak-to-Valley (PVR)
-      if (pvrDb < 22.0) {
-        aiFeatures += 14;
-      } else if (pvrDb >= 32.0) {
-        humanFeatures += 16;
-      }
-
-      // D. Asosiy ton mikrotebranishi (Micro-Jitter)
-      // Inson tovush paychalari mikromodulyatsiyaga ega (microJitter > 1.2Hz)
-      if (pitchHistory.length >= 4 && estPitch > 60) {
-        if (pitchStd < 3.0 && microJitter < 0.8) {
-          aiFeatures += 22; // Sun'iy robotik silliqlik
-        } else if (pitchStd >= 8.0 && microJitter >= 1.5) {
-          humanFeatures += 14; // Tabiiy tirik inson intonatsiyasi
+        // A. Spektral Tekislik (SFM: Vocoder vs Inson garmonikalari)
+        // Tabiiy inson jarangli unlisida SFM < 0.25 (toza chuqur garmonikalar)
+        // AI Vocoder (ElevenLabs, HiFi-GAN, RVC, ChatGPT): SFM 0.34 - 0.52
+        if (linSfm >= 0.35 && linSfm <= 0.55) {
+          aiFeatures += Math.min(40, Math.round((linSfm - 0.35) * 350 + 22));
+        } else if (linSfm >= 0.30 && linSfm <= 0.55) {
+          aiFeatures += Math.round((linSfm - 0.30) * 160 + 8);
+        } else if (linSfm < 0.24) {
+          humanFeatures += 24;
         }
-      }
 
-      // E. Nyquist kesilishi (24kHz / 12kHz cutoff - ElevenLabs & OpenAI TTS)
-      if (hfRatio < 0.005 && estPitch > 70 && rms > 0.02) {
-        aiFeatures += 12;
-      }
+        // B. Zero Crossing Rate (ZCR) jarangli nutqda
+        // Inson unlisida ZCR < 0.028
+        // Vocoder yuqori fazaviy kvantlash shovqini: 0.045 - 0.12
+        if (zcr >= 0.048 && zcr <= 0.14) {
+          aiFeatures += Math.min(30, Math.round((zcr - 0.048) * 500 + 15));
+        } else if (zcr < 0.028) {
+          humanFeatures += 18;
+        }
 
-      const rawRisk = 12 + aiFeatures - humanFeatures;
-      instantRisk = Math.max(8, Math.min(98, Math.round(rawRisk * currentSensitivity)));
+        // C. Formant Peak-to-Valley (PVR)
+        if (pvrDb < 22.0) {
+          aiFeatures += 14;
+        } else if (pvrDb >= 30.0) {
+          humanFeatures += 18;
+        }
+
+        // D. Asosiy ton mikrotebranishi (Micro-Jitter)
+        if (pitchHistory.length >= 4 && estPitch > 60) {
+          if (pitchStd < 3.0 && microJitter < 0.8) {
+            aiFeatures += 20; // Sun'iy robotik silliqlik
+          } else if (pitchStd >= 7.0 && microJitter >= 1.2) {
+            humanFeatures += 16; // Tabiiy tirik inson intonatsiyasi
+          }
+        }
+
+        // E. Nyquist kesilishi (24kHz / 12kHz cutoff - ElevenLabs & OpenAI TTS)
+        if (hfRatio < 0.005 && estPitch > 70 && rms > 0.02) {
+          aiFeatures += 12;
+        }
+
+        const rawRisk = 10 + aiFeatures - humanFeatures;
+        instantRisk = Math.max(8, Math.min(98, Math.round(rawRisk * currentSensitivity)));
+      }
     } else {
       instantRisk = 8;
     }
@@ -1217,11 +1230,13 @@ function analyzeMicrophoneLoop() {
     // Turg'unlashtirish va sukunatda xavfsiz (yashil) holatga qaytish
     if (isInjectingAI) {
       smoothedRisk = 96;
-    } else if (rms >= 0.010) {
+    } else if (rms >= 0.009) {
       silenceCount = 0;
-      smoothedRisk = 0.35 * instantRisk + 0.65 * smoothedRisk;
-      // Avtomatik Gemini AI Sentinel tekshiruvi (shubhali bo'lsa yoki qo'ng'iroq davom etsa)
-      checkAutoGeminiAudit();
+      smoothedRisk = 0.30 * instantRisk + 0.70 * smoothedRisk;
+      // Avtomatik Gemini AI Sentinel tekshiruvi (faqat jarangli shubhali nutqda)
+      if (instantRisk >= 50 && !isHumanBreathOrSigh) {
+        checkAutoGeminiAudit();
+      }
     } else {
       silenceCount++;
       smoothedRisk = Math.max(8, smoothedRisk * 0.85);
@@ -1242,7 +1257,14 @@ function analyzeMicrophoneLoop() {
         timestamp: Date.now()
       }));
     } else {
-      const jitterLabel = currentScore >= 65 ? "Sun'iy Vocoder (AI / Gemini)" : (currentScore >= 35 ? "Shubhali" : "Insoniy (Me'yorda)");
+      let jitterLabel = "Insoniy (Me'yorda)";
+      if (currentScore >= 65) {
+        jitterLabel = "Sun'iy Vocoder (AI / Gemini)";
+      } else if (currentScore >= 35) {
+        jitterLabel = isHumanBreathOrSigh ? "Insoniy nafas / entikish" : "Shubhali tebranish";
+      } else {
+        jitterLabel = isHumanBreathOrSigh ? "Tabiiy nafas / entikish" : "Insoniy (Me'yorda)";
+      }
       updateRiskScore(currentScore, {
         flatness: linSfm.toFixed(2),
         pitch: estPitch >= 75 ? `${estPitch} Hz` : '-- Hz',
@@ -1616,29 +1638,33 @@ if (btnSaveApiKey) {
 }
 
 // ---------------- Gemini Audio Forensics Prompti & API Chaqiruvi ----------------
-const GEMINI_SYSTEM_INSTRUCTION = `Siz yuqori malakali audio-kriminalistika va sun'iy intellekt (deepfake) tovushlarini aniqlovchi ekspertizasiz.
-Vazifangiz audio yozuvni tinglab, uning haqiqiy inson ovozimi yoki sun'iy intellekt (ElevenLabs, ChatGPT, Gemini, RVC ovoz kloni, TTS) tomonidan yaratilgan ovoz ekanligini chuqur ilmiy tahlil qilishdir.
+const GEMINI_SYSTEM_INSTRUCTION = `Siz xalqaro darajadagi eng ilg'or audio-kriminalistika va sun'iy intellekt (deepfake) tovushlarini aniqlovchi ekspertizasiz.
+Vazifangiz audio yozuvni tinglab, uning haqiqiy tirik inson ovozimi yoki sun'iy intellekt (ElevenLabs, ChatGPT Voice, Google Gemini Vocoder, RVC kloni, XTTS, Bark, TTS) tomonidan yaratilgan ovoz ekanligini chuqur ilmiy tahlil qilishdir.
 
-QAT'IY FORENSIK MEZONLAR:
-1. SUN'IY INTELLEKT (AI / DEEPFAKE) OVOZLARNING BELGILARI:
-   - ElevenLabs & Gemini Vocoder: O'ta silliq spektral kontur, tabiiy xirillash (jitter) va vokal beqarorlikning yo'qligi, sun'iy nafas olish va nafas chiqarishning nomutanosibligi, neyro-vocoder fazaviy dispersion qoldiqlari (2kHz-4kHz dagi mayin metallik jarang).
-   - RVC / Klonlangan ovoz: Ovoz balandligining keskin o'tishlaridagi kvantlash shovqini, robotik rezonans, orqa fondagi so'zlar orasidagi sun'iy sukunat (insoniy nafasning yo'qligi).
-   - ChatGPT / Standart TTS: Monoton intonatsiya to'lqini, asosiy ton (pitch) tebranishining o'ta pastligi (< 8 Hz).
+QAT'IY FORENSIK VA FIZIOLOGIK MEZONLAR:
 
-2. HAQIQIY INSON OVOZINING BELGILARI:
-   - Tabiiy fiziologik mikrotebranish (tomoq mushaklari va ovoz paychalarining 15-40 Hz oraliqdagi tabiiy tebranishi).
-   - Haqiqiy aerodinamik nafas tovushlari (inhalatsiya/ekshalatsiya), lab, til va tishlarning tabiiy akustik ta'siri.
-   - Xona reverberatsiyasi va masofaviy aks-sado.
-   - Hissiy intonatsiya o'zgaruvchanligi (urg'u, hayajon, ovozning tabiiy sinishi).
+1. HAQIQIY INSON OVOZI VA FIZIOLOGIYASI (MUTLAQO SOXTA DEB ADASHTIRMANG):
+   - Insoniy nafas olish, entikish, uf tortish, pichirlash, tomoq qirish va so'zlar orasidagi tabiiy aerodinamik nafas tovushlari — bu inson tirikligining 100% isbotidir!
+   - Tomoq mushaklari va ovoz paychalarining mikromodulyatsiyasi (glottal cycle-to-cycle jitter 0.8% - 2.5% va shimmer).
+   - Vokal trakt rezonansi: og'iz, burun va halqum formantlari (F1-F4) ning tabiiy akustik kontrasti.
+   - Xona reverberatsiyasi, mikrofon masofasi va tabiiy fon shovqini.
+   - O'zbekcha yoki boshqa tildagi tabiiy urg'u, his-tuyg'u, hayajon, ovozning tabiiy xirillashi yoki baland-pastligi.
+   - AGAR OVOZDA INSONIY NAFAS, ENTIKISH YOKI TABIIY NUTQ BO'LSA: is_deepfake = false, risk_score = 5-15, verdict = "SAFE", ai_type = "Haqiqiy Inson".
+
+2. SUN'IY INTELLEKT (AI / DEEPFAKE) OVOZLARNING QAT'IY ANOMALIYALARI:
+   - ElevenLabs (v1/v2/v3): HiFi-GAN va BigVGAN neyro-vocoder fazaviy dispersion qoldiqlari (2.5 kHz - 4.2 kHz oraliqda metallik vocoder foni), 24kHz / 12kHz Nyquist chastota kesilishi, mikrotebranishning yo'qligi, gaplar orasidagi sun'iy raqamli sukunat.
+   - OpenAI ChatGPT Voice (Advanced Voice Mode, GPT-4o Realtime): Autoregressiv nutq modeli, doimiy fazaviy izchillik, sintetik nafas klipi, monoton mikrotebranish.
+   - RVC v1/v2 (Retrieval-based Voice Conversion): F1-F3 formant siljishi (warping), metallik yuqori garmonikalar, ohang sinishidagi kvantlash xatolari.
+   - XTTS v2, Tortoise, Bark, Edge-TTS: Monoton prosodiya, sintetik kvantlash, so'zlar orasidagi steril raqamli sukunat.
 
 JAVOB FORMATI (FAQAT QAT'IY JSON, BOSHQA HECH QANDAY MATNSIZ):
 {
   "is_deepfake": true / false,
-  "risk_score": 0 dan 100 gacha butun son (Inson bo'lsa: 5-20, AI bo'lsa: 85-98),
+  "risk_score": 0 dan 100 gacha butun son (Inson bo'lsa: 5-15, AI bo'lsa: 85-98),
   "verdict": "SAFE" yoki "DANGEROUS",
   "ai_type": "Haqiqiy Inson" / "ElevenLabs Klon" / "Gemini Vocoder" / "ChatGPT Voice" / "RVC Klon" / "Standart TTS",
   "confidence": "HIGH" yoki "MEDIUM",
-  "reasons": "O'zbek tilida 1-2 jumlada nima uchun sun'iy yoki insoniy ekanligi haqida aniq professional sabab"
+  "reasons": "O'zbek tilida 1-2 jumlada nima uchun sun'iy yoki insoniy ekanligi haqida aniq professional sabab (masalan: Tabiiy nafas va vokal mikrotebranishi tasdiqlandi)"
 }`;
 
 async function blobToBase64(blob) {
