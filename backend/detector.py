@@ -60,8 +60,8 @@ class AudioDeepfakeDetector:
 
         self.silence_frames = 0
 
-        # Insoniy nafas, entikish, uf tortish yoki pichirlash (Unvoiced breath noise)
-        if pitch < 60 or sfm > 0.65:
+        # Insoniy nafas, entikish, uf tortish yoki pichirlash (faqat mayin va pitch yo'q tovush)
+        if pitch < 60 and rms < 0.025:
             return 8, "SAFE", {
                 "flatness": f"{sfm:.2f}",
                 "pitch": "-- Hz",
@@ -157,6 +157,54 @@ class AudioDeepfakeDetector:
 
         return smoothed_risk, status, details
 
+    def analyze_raw_pcm(self, pcm_bytes: bytes, sample_rate: int = 16000) -> Tuple[int, str, Dict[str, Any]]:
+        """
+        Mobil ilova (Flutter) yoki WebSocket'dan kelgan xom PCM-16 audio oqimini tahlil qiladi.
+        """
+        usable_len = len(pcm_bytes) - (len(pcm_bytes) % 2)
+        if usable_len < 640:
+            return int(round(self.last_score)), "SAFE", {
+                "flatness": "0.00",
+                "pitch": "-- Hz",
+                "jitter": "Kutilmoqda",
+                "volume": "-60 dB",
+                "vocoder": "Ovoz kutilmoqda"
+            }
+
+        samples = np.frombuffer(pcm_bytes[:usable_len], dtype=np.int16).astype(np.float32) / 32768.0
+        rms = float(np.sqrt(np.mean(samples * samples)))
+        if rms < 0.009:
+            return self.analyze_acoustic_features(rms=rms, sfm=0.1, pvr=30.0, pitch=0.0, sensitivity=1.0)
+
+        win = np.hanning(len(samples))
+        rfft = np.abs(np.fft.rfft(samples * win))
+        freqs = np.fft.rfftfreq(len(samples), 1.0 / sample_rate)
+
+        voice_idx = np.where((freqs >= 200) & (freqs <= 3500))[0]
+        if len(voice_idx) > 0:
+            v_fft = rfft[voice_idx] + 1e-6
+            sfm = float(min(1.0, np.exp(np.mean(np.log(v_fft))) / np.mean(v_fft)))
+            v_db = 20.0 * np.log10(v_fft)
+            pvr = float(max(0.0, np.max(v_db) - np.percentile(v_db, 25)))
+        else:
+            sfm = 0.1
+            pvr = 30.0
+
+        pitch_idx = np.where((freqs >= 75) & (freqs <= 350))[0]
+        pitch = float(freqs[pitch_idx[np.argmax(rfft[pitch_idx])]]) if len(pitch_idx) > 0 else 0.0
+
+        high_idx = np.where(freqs >= 7000)[0]
+        hf_ratio = float(np.sum(rfft[high_idx] ** 2) / (np.sum(rfft ** 2) + 1e-6)) if len(high_idx) > 0 else 0.02
+
+        return self.analyze_acoustic_features(
+            rms=rms,
+            sfm=sfm,
+            pvr=pvr,
+            pitch=pitch,
+            hf_ratio=hf_ratio,
+            sensitivity=1.0
+        )
+
     def analyze_audio_bytes(self, file_bytes: bytes, filename: str = "audio.wav") -> Dict[str, Any]:
         """
         Yuklangan audio faylni (.wav, .mp3, .ogg) to'liq spektral va garmonik tahlil qiladi.
@@ -170,27 +218,46 @@ class AudioDeepfakeDetector:
                 raw_frames = wav_file.readframes(n_frames)
 
                 if sample_width == 2:
-                    dtype = np.int16
+                    audio_data = np.frombuffer(raw_frames, dtype=np.int16).astype(np.float32)
                 elif sample_width == 1:
-                    dtype = np.uint8
+                    audio_data = np.frombuffer(raw_frames, dtype=np.uint8).astype(np.float32) - 128.0
                 elif sample_width == 4:
-                    dtype = np.int32
+                    audio_data = np.frombuffer(raw_frames, dtype=np.int32).astype(np.float32)
                 else:
-                    dtype = np.int16
+                    return {"success": False, "ai_probability": 0, "status": "SAFE", "verdict": "Format Xatosi", "verdict_desc": "Qo'llab-quvvatlanmaydigan bit chuqurligi.", "findings": []}
 
-                audio_data = np.frombuffer(raw_frames, dtype=dtype).astype(np.float32)
                 if channels > 1:
                     audio_data = audio_data.reshape(-1, channels).mean(axis=1)
 
-                max_val = np.max(np.abs(audio_data)) or 1.0
+                max_val = float(np.max(np.abs(audio_data))) or 1.0
                 audio_data = audio_data / max_val
         except Exception:
-            audio_data = np.frombuffer(file_bytes[:len(file_bytes) - (len(file_bytes) % 2)], dtype=np.int16).astype(np.float32)
-            if len(audio_data) == 0:
-                return {"success": False, "error": "Audio fayl ma'lumotlarini o'qib bo'lmadi."}
-            max_val = np.max(np.abs(audio_data)) or 1.0
-            audio_data = audio_data / max_val
-            framerate = 16000
+            # Siqilgan MP3/OGG fayllar WAV kabi raw int16 deb o'qilmasligi kerak — ffmpeg/pydub bilan tekshiramiz
+            try:
+                import subprocess
+                proc = subprocess.run(
+                    ["ffmpeg", "-i", "pipe:0", "-f", "s16le", "-ac", "1", "-ar", "16000", "pipe:1"],
+                    input=file_bytes,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
+                    check=True,
+                )
+                audio_data = np.frombuffer(proc.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+                framerate = 16000
+            except Exception:
+                return {
+                    "success": False,
+                    "filename": filename,
+                    "ai_probability": 0,
+                    "status": "SAFE",
+                    "verdict": "Audio dekodlash xatosi",
+                    "verdict_desc": "Serverda faqat WAV formati (yoki ffmpeg o'rnatilgan MP3/OGG) dekodlanadi.",
+                    "findings": ["Iltimos, brauzer orqali yuklang yoki .wav fayl tanlang."]
+                }
+
+        if len(audio_data) == 0:
+            return {"success": False, "filename": filename, "ai_probability": 0, "status": "SAFE", "verdict": "Bo'sh audio", "verdict_desc": "Audio ma'lumot topilmadi.", "findings": []}
 
         duration_sec = round(len(audio_data) / max(framerate, 8000), 2)
 
@@ -228,11 +295,14 @@ class AudioDeepfakeDetector:
         ai_probability = 8
         reasons = []
 
-        if sfm >= 0.035:
-            ai_probability += min(56, int(25 + (sfm - 0.035) * 1200))
+        if sfm >= 0.35:
+            ai_probability += min(74, int(45 + (sfm - 0.35) * 120))
             reasons.append(f"Garmonikalarda sun'iy neyro-vocoder izi aniqlandi (SFM: {sfm:.2f})")
+        elif sfm >= 0.12:
+            ai_probability += min(32, int(15 + (sfm - 0.12) * 80))
+            reasons.append(f"O'rtacha spektral tekislik artefakti kuzatildi (SFM: {sfm:.2f})")
 
-        if high_freq_ratio < 0.03:
+        if framerate >= 24000 and high_freq_ratio < 0.03:
             ai_probability += 24
             reasons.append("16/22 kHz sintetik TTS modeliga xos yuqori chastota kesilishi mavjud")
 

@@ -5,6 +5,20 @@
 
 const $ = (id) => document.getElementById(id);
 
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function safeAvatarSrc(src) {
+  const s = String(src || '').trim();
+  return /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/i.test(s) ? s : '';
+}
+
 // 1. Google Material 3 Translucent Navigation Bar (5 ta bo'lim)
 const navKeypad = $('navKeypad');
 const navHistory = $('navHistory');
@@ -139,6 +153,7 @@ const canvasCtx = canvas.getContext('2d');
 
 let currentMode = 'mic';
 let callActive = false;
+let callSessionId = 0;
 let callSeconds = 0;
 let callInterval = null;
 let maxRiskScore = 0;
@@ -155,9 +170,13 @@ let currentCaller = {
 // Web Audio API
 let audioContext = null;
 let mediaStream = null;
+let displayStream = null;
+let activeRecordingStream = null;
 let analyser = null;
 let audioSource = null;
 let animationFrameId = null;
+let analyzeLoopTimerId = null;
+let aiSpeechSafetyTimer = null;
 
 let pitchHistory = [];
 let sfmHistory = [];
@@ -169,6 +188,9 @@ let lastAutoGeminiTime = 0;
 
 let socket = null;
 let wsConnected = false;
+let backendAvailable = false;
+let serverHasGeminiKey = false;
+let serverMaskedGeminiKey = null;
 
 // ==========================================================================
 // 2. KONTAKTLAR VA QO'NG'IROQLAR TARIXI (LOCAL STORAGE)
@@ -255,20 +277,24 @@ function renderContacts(filter = '') {
   filtered.forEach(c => {
     const card = document.createElement('div');
     card.className = 'contact-card glass-card';
-    
+
+    const safeName = escapeHtml(c.name);
+    const safePhone = escapeHtml(c.phone);
+    const imgSrc = c.avatarType === 'image' ? safeAvatarSrc(c.avatar) : '';
+
     let avatarHtml = `<div class="contact-avatar">`;
-    if (c.avatarType === 'image') {
-      avatarHtml += `<img src="${c.avatar}" alt="${c.name}">`;
+    if (imgSrc) {
+      avatarHtml += `<img src="${imgSrc}" alt="${safeName}">`;
     } else {
-      avatarHtml += `<span>${c.avatar || '👤'}</span>`;
+      avatarHtml += `<span>${escapeHtml(c.avatar || '👤')}</span>`;
     }
     avatarHtml += `</div>`;
 
     card.innerHTML = `
       ${avatarHtml}
       <div class="contact-info">
-        <div class="contact-name">${c.name}</div>
-        <div class="contact-phone">${c.phone}</div>
+        <div class="contact-name">${safeName}</div>
+        <div class="contact-phone">${safePhone}</div>
       </div>
       <div class="contact-actions">
         <button class="icon-action-btn call-btn" title="Qo'ng'iroq qilish">📞</button>
@@ -318,10 +344,11 @@ function openContactModal(contact) {
   inputContactName.value = contact ? contact.name : '';
   inputContactPhone.value = contact ? contact.phone : '';
 
-  if (contact && contact.avatarType === 'image') {
-    selectedAvatarData = contact.avatar;
+  const validAvatar = contact && contact.avatarType === 'image' ? safeAvatarSrc(contact.avatar) : '';
+  if (validAvatar) {
+    selectedAvatarData = validAvatar;
     selectedAvatarType = 'image';
-    contactPreviewImg.src = contact.avatar;
+    contactPreviewImg.src = validAvatar;
     contactPreviewImg.style.display = 'block';
     contactPreviewEmoji.style.display = 'none';
   } else {
@@ -356,12 +383,18 @@ if (inputAvatarFile) {
   inputAvatarFile.onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (!/^image\/(png|jpeg|jpg|webp|gif)$/i.test(file.type)) {
+      alert("Faqat PNG, JPG, WEBP yoki GIF formatdagi rasm yuklang.");
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      selectedAvatarData = event.target.result;
+      const safeUrl = safeAvatarSrc(event.target.result);
+      if (!safeUrl) return;
+      selectedAvatarData = safeUrl;
       selectedAvatarType = 'image';
-      contactPreviewImg.src = selectedAvatarData;
+      contactPreviewImg.src = safeUrl;
       contactPreviewImg.style.display = 'block';
       contactPreviewEmoji.style.display = 'none';
       document.querySelectorAll('.emoji-chip').forEach(ch => ch.classList.remove('active'));
@@ -456,27 +489,30 @@ function renderCallHistory() {
     const card = document.createElement('div');
     card.className = 'history-item-card glass-card';
 
+    const safeName = escapeHtml(item.name);
+    const imgSrc = item.avatarType === 'image' ? safeAvatarSrc(item.avatar) : '';
+
     let avatarHtml = `<div class="history-avatar">`;
-    if (item.avatarType === 'image') {
-      avatarHtml += `<img src="${item.avatar}" alt="${item.name}">`;
+    if (imgSrc) {
+      avatarHtml += `<img src="${imgSrc}" alt="${safeName}">`;
     } else {
-      avatarHtml += `<span>${item.avatar || '👤'}</span>`;
+      avatarHtml += `<span>${escapeHtml(item.avatar || '👤')}</span>`;
     }
     avatarHtml += `</div>`;
 
     const isDanger = item.status === 'DEEPFAKE';
     const badgeClass = isDanger ? 'badge-danger' : 'badge-safe';
-    const badgeText = isDanger ? `⚠️ ${item.maxRisk}% DEEPFAKE` : `✓ ${item.maxRisk}% INSONIY`;
+    const badgeText = isDanger ? `⚠️ ${Number(item.maxRisk) || 0}% DEEPFAKE` : `✓ ${Number(item.maxRisk) || 0}% INSONIY`;
 
     card.innerHTML = `
       ${avatarHtml}
       <div class="history-details">
         <div class="history-name-row">
-          <span class="history-name">${item.name}</span>
-          <span class="history-time">${item.date || ''}</span>
+          <span class="history-name">${safeName}</span>
+          <span class="history-time">${escapeHtml(item.date || '')}</span>
         </div>
         <div class="history-meta-row">
-          <span class="history-duration">⏱️ ${item.duration}</span>
+          <span class="history-duration">⏱️ ${escapeHtml(item.duration || '00:00')}</span>
           <span class="m3-tonal-badge mini ${badgeClass}">${badgeText}</span>
         </div>
       </div>
@@ -511,11 +547,6 @@ if (btnClearHistory) {
 
 const keypadDisplay = $('keypadDisplay');
 const btnKeypadBackspace = $('btnKeypadBackspace');
-const keypadMatchContact = $('keypadMatchContact');
-const keypadMatchAvatar = $('keypadMatchAvatar');
-const keypadMatchName = $('keypadMatchName');
-const keypadMatchPhone = $('keypadMatchPhone');
-const btnKeypadQuickCall = $('btnKeypadQuickCall');
 const btnKeypadAddContact = $('btnKeypadAddContact');
 const btnKeypadDial = $('btnKeypadDial');
 
@@ -610,23 +641,25 @@ function updateKeypadUI() {
 
   if (matchingContacts.length > 0) {
     if (btnKeypadAddContact) btnKeypadAddContact.style.display = 'none';
-    let html = '';
+    keypadSuggestionsList.innerHTML = '';
     matchingContacts.slice(0, 3).forEach(c => {
-      const avatarHtml = c.avatarType === 'image' 
-        ? `<img src="${c.avatar}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`
-        : `<span>${c.avatar || '👤'}</span>`;
-      html += `
-        <div class="keypad-suggestion-item glass-card" onclick="dialSpecificContact('${c.id}')">
-          <div class="mini-avatar">${avatarHtml}</div>
-          <div class="mini-info" style="flex:1;">
-            <strong>${c.name}</strong>
-            <small>${c.phone}</small>
-          </div>
-          <button class="mini-call-btn" title="Qo'ng'iroq qilish">📞</button>
+      const itemEl = document.createElement('div');
+      itemEl.className = 'keypad-suggestion-item glass-card';
+      const imgSrc = c.avatarType === 'image' ? safeAvatarSrc(c.avatar) : '';
+      const avatarHtml = imgSrc
+        ? `<img src="${imgSrc}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" alt="">`
+        : `<span>${escapeHtml(c.avatar || '👤')}</span>`;
+      itemEl.innerHTML = `
+        <div class="mini-avatar">${avatarHtml}</div>
+        <div class="mini-info" style="flex:1;">
+          <strong>${escapeHtml(c.name)}</strong>
+          <small>${escapeHtml(c.phone)}</small>
         </div>
+        <button class="mini-call-btn" title="Qo'ng'iroq qilish">📞</button>
       `;
+      itemEl.onclick = () => initiateCall(c);
+      keypadSuggestionsList.appendChild(itemEl);
     });
-    keypadSuggestionsList.innerHTML = html;
   } else {
     keypadSuggestionsList.innerHTML = '';
     if (btnKeypadAddContact && currentDialNumber.length >= 3) {
@@ -638,17 +671,11 @@ function updateKeypadUI() {
 }
 
 window.dialSpecificContact = function(id) {
-  const contact = contacts.find(c => c.id === id);
+  const contact = contacts.find(c => String(c.id) === String(id));
   if (contact) {
     initiateCall(contact);
   }
 };
-
-if (btnKeypadQuickCall) {
-  btnKeypadQuickCall.onclick = () => {
-    if (matchedContact) initiateCall(matchedContact);
-  };
-}
 
 if (btnKeypadAddContact) {
   btnKeypadAddContact.onclick = () => {
@@ -692,9 +719,10 @@ function initiateCall(caller) {
   if (incomingCallerPhone) incomingCallerPhone.textContent = caller.phone;
   if (inCallName) inCallName.textContent = caller.name;
 
-  if (caller.avatarType === 'image') {
+  const validCallerImg = caller.avatarType === 'image' ? safeAvatarSrc(caller.avatar) : '';
+  if (validCallerImg) {
     if (incomingAvatarImg) {
-      incomingAvatarImg.src = caller.avatar;
+      incomingAvatarImg.src = validCallerImg;
       incomingAvatarImg.style.display = 'block';
     }
     if (incomingAvatarEmoji) incomingAvatarEmoji.style.display = 'none';
@@ -723,36 +751,54 @@ function switchCallView(vName) {
   if (vName === 'ended' && viewEnded) viewEnded.classList.add('active');
 }
 
-btnAnswer.onclick = async () => {
-  switchCallView('calling');
-  callActive = true;
-  callSeconds = 0;
-  maxRiskScore = 0;
-  isAlertActive = false;
-  pitchHistory = [];
-  sfmHistory = [];
-  lastPitch = 0;
-  lastAutoGeminiTime = 0;
-  smoothedRisk = 4.0;
-  silenceCount = 0;
-  isInjectingAI = false;
-  dangerAlert.classList.remove('show');
-  btnVerifyChannel.classList.remove('show');
-  closeSheet();
+if (btnAnswer) {
+  btnAnswer.onclick = async () => {
+    switchCallView('calling');
+    callSessionId++;
+    callActive = true;
+    callSeconds = 0;
+    maxRiskScore = 0;
+    isAlertActive = false;
+    pitchHistory = [];
+    sfmHistory = [];
+    lastPitch = 0;
+    autoGeminiAuditing = false;
+    lastAutoGeminiTime = 0;
+    smoothedRisk = 4.0;
+    silenceCount = 0;
+    isInjectingAI = false;
+    if (callTimer) callTimer.textContent = '00:00';
+    if (boxGeminiResult) boxGeminiResult.style.display = 'none';
+    if (btnSystemAudio) {
+      btnSystemAudio.classList.remove('active');
+      btnSystemAudio.innerHTML = `<span class="pill-icon">💻</span><span>Tizim audiosini ulash</span>`;
+    }
+    if (btnInjectAIVoice) {
+      btnInjectAIVoice.classList.remove('active');
+      btnInjectAIVoice.innerHTML = `<span class="pill-icon">🤖</span><span>AI Ovozini chalish</span>`;
+    }
+    if (dangerAlert) dangerAlert.classList.remove('show');
+    if (btnVerifyChannel) btnVerifyChannel.classList.remove('show');
+    closeSheet();
 
-  if (wsConnected && socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ action: "reset" }));
-  }
+    if (wsConnected && socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ action: "reset" }));
+    }
 
-  callInterval = setInterval(updateCallTimer, 1000);
-  await startAudioEngine();
-};
+    clearInterval(callInterval);
+    callInterval = setInterval(updateCallTimer, 1000);
+    await startAudioEngine();
+  };
+}
 
-btnReject.onclick = () => endCallProcess(false);
-btnEndCall.onclick = () => endCallProcess(true);
+if (btnReject) btnReject.onclick = () => endCallProcess(false);
+if (btnEndCall) btnEndCall.onclick = () => endCallProcess(true);
 
 function endCallProcess(wasAnswered) {
+  callSessionId++;
   callActive = false;
+  isInjectingAI = false;
+  autoGeminiAuditing = false;
   clearInterval(callInterval);
   stopAudioEngine();
   closeSheet();
@@ -845,6 +891,15 @@ function formatTime(sec) {
 
 // ---------------- Audio Dvigateli (Mikrofon) ----------------
 async function startAudioEngine() {
+  if (analyzeLoopTimerId) {
+    clearTimeout(analyzeLoopTimerId);
+    analyzeLoopTimerId = null;
+  }
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+
   if (currentMode === 'mic') {
     try {
       try {
@@ -860,6 +915,7 @@ async function startAudioEngine() {
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
 
+      activeRecordingStream = mediaStream;
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
       analyser = audioContext.createAnalyser();
       analyser.fftSize = 2048;
@@ -880,109 +936,178 @@ async function startAudioEngine() {
   }
 }
 
-// Tizim audiosi (Loopback)
-btnSystemAudio.onclick = async () => {
-  try {
-    const displayStream = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: true
-    });
-
-    const audioTrack = displayStream.getAudioTracks()[0];
-    if (!audioTrack) {
-      alert("Iltimos, ochilgan oynada 'Audio bilan bo'lishish' (Share audio) katakchasiga belgi qo'ying!");
-      displayStream.getTracks().forEach(t => t.stop());
-      return;
-    }
-
-    if (audioSource) audioSource.disconnect();
-    if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    if (!analyser) {
-      analyser = audioContext.createAnalyser();
-      analyser.fftSize = 2048;
-      analyser.smoothingTimeConstant = 0.45;
-    }
-
-    audioSource = audioContext.createMediaStreamSource(displayStream);
-    audioSource.connect(analyser);
-
-    btnSystemAudio.classList.add('active');
-    btnSystemAudio.innerHTML = `<span class="pill-icon">🟢</span><span>Tizim audiosi ulangan</span>`;
-  } catch (err) {
-    console.warn("Tizim audiosi ulanmadi:", err);
+function restoreMicrophoneStream() {
+  if (displayStream) {
+    displayStream.getTracks().forEach(t => t.stop());
+    displayStream = null;
   }
-};
+  if (mediaStream && audioContext && analyser) {
+    try {
+      if (audioSource) audioSource.disconnect();
+      audioSource = audioContext.createMediaStreamSource(mediaStream);
+      audioSource.connect(analyser);
+      activeRecordingStream = mediaStream;
+    } catch (e) {}
+  }
+  if (btnSystemAudio) {
+    btnSystemAudio.classList.remove('active');
+    btnSystemAudio.innerHTML = `<span class="pill-icon">💻</span><span>Tizim audiosini ulash</span>`;
+  }
+}
+
+// Tizim audiosi (Loopback)
+if (btnSystemAudio) {
+  btnSystemAudio.onclick = async () => {
+    try {
+      const captured = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true
+      });
+
+      const audioTrack = captured.getAudioTracks()[0];
+      if (!audioTrack) {
+        alert("Iltimos, ochilgan oynada 'Audio bilan bo'lishish' (Share audio) katakchasiga belgi qo'ying!");
+        captured.getTracks().forEach(t => t.stop());
+        return;
+      }
+
+      if (displayStream) {
+        displayStream.getTracks().forEach(t => t.stop());
+      }
+      displayStream = captured;
+
+      const systemAudioOnlyStream = new MediaStream([audioTrack]);
+      activeRecordingStream = systemAudioOnlyStream;
+
+      if (audioSource) audioSource.disconnect();
+      if (!audioContext || audioContext.state === 'closed') {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (!analyser) {
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        analyser.smoothingTimeConstant = 0.45;
+      }
+
+      audioSource = audioContext.createMediaStreamSource(systemAudioOnlyStream);
+      audioSource.connect(analyser);
+
+      audioTrack.onended = () => {
+        restoreMicrophoneStream();
+      };
+
+      btnSystemAudio.classList.add('active');
+      btnSystemAudio.innerHTML = `<span class="pill-icon">🟢</span><span>Tizim audiosi ulangan</span>`;
+    } catch (err) {
+      console.warn("Tizim audiosi ulanmadi:", err);
+    }
+  };
+}
 
 // AI Ovozini chalib sinash
 let aiAudioElement = null;
 let aiSourceNode = null;
 
-btnInjectAIVoice.onclick = () => {
-  btnInjectAIVoice.classList.add('active');
-  btnInjectAIVoice.innerHTML = `<span class="pill-icon">⏳</span><span>AI gapirmoqda...</span>`;
-  isInjectingAI = true;
-
-  updateRiskScore(95, {
-    flatness: "0.45",
-    pitch: "142 Hz",
-    jitter: "Sun'iy Vocoder (Gemini/TTS)",
-    volume: "-14 dB"
-  });
-
-  if (audioContext) {
-    if (!aiAudioElement) {
-      aiAudioElement = new Audio('/samples/ai_deepfake.wav');
-      aiAudioElement.crossOrigin = 'anonymous';
-      try {
-        aiSourceNode = audioContext.createMediaElementSource(aiAudioElement);
-        aiSourceNode.connect(analyser);
-        aiSourceNode.connect(audioContext.destination);
-      } catch (e) {}
-    }
-    if (aiAudioElement) {
-      aiAudioElement.currentTime = 0;
-      aiAudioElement.play().catch(() => {});
-    }
+function resetAiVoiceBtnState() {
+  if (aiSpeechSafetyTimer) {
+    clearTimeout(aiSpeechSafetyTimer);
+    aiSpeechSafetyTimer = null;
   }
-
-  if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
-    const text = "Diqqat! Men sun'iy intellekt tomonidan yaratilgan klon ovozman. Hisob raqamga zudlik bilan pul o'tkazing!";
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
-    utterance.pitch = 0.95;
-
-    utterance.onend = () => {
-      btnInjectAIVoice.classList.remove('active');
-      btnInjectAIVoice.innerHTML = `<span class="pill-icon">🤖</span><span>AI Ovozini chalish</span>`;
-      setTimeout(() => { isInjectingAI = false; }, 2000);
-    };
-
-    window.speechSynthesis.speak(utterance);
-  } else {
-    setTimeout(() => {
-      btnInjectAIVoice.classList.remove('active');
-      btnInjectAIVoice.innerHTML = `<span class="pill-icon">🤖</span><span>AI Ovozini chalish</span>`;
-      isInjectingAI = false;
-    }, 4500);
+  if (btnInjectAIVoice) {
+    btnInjectAIVoice.classList.remove('active');
+    btnInjectAIVoice.innerHTML = `<span class="pill-icon">🤖</span><span>AI Ovozini chalish</span>`;
   }
-};
+  isInjectingAI = false;
+}
+
+if (btnInjectAIVoice) {
+  btnInjectAIVoice.onclick = () => {
+    btnInjectAIVoice.classList.add('active');
+    btnInjectAIVoice.innerHTML = `<span class="pill-icon">⏳</span><span>AI gapirmoqda...</span>`;
+    isInjectingAI = true;
+
+    updateRiskScore(95, {
+      flatness: "0.45",
+      pitch: "142 Hz",
+      jitter: "Sun'iy Vocoder (Gemini/TTS)",
+      volume: "-14 dB"
+    });
+
+    if (audioContext && analyser) {
+      if (!aiAudioElement) {
+        aiAudioElement = new Audio('/samples/ai_deepfake.wav');
+        aiAudioElement.crossOrigin = 'anonymous';
+        try {
+          aiSourceNode = audioContext.createMediaElementSource(aiAudioElement);
+          aiSourceNode.connect(analyser);
+          aiSourceNode.connect(audioContext.destination);
+        } catch (e) {}
+      }
+      if (aiAudioElement) {
+        aiAudioElement.currentTime = 0;
+        aiAudioElement.play().catch(() => {});
+      }
+    }
+
+    if (aiSpeechSafetyTimer) clearTimeout(aiSpeechSafetyTimer);
+    aiSpeechSafetyTimer = setTimeout(resetAiVoiceBtnState, 9000);
+
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const text = "Diqqat! Men sun'iy intellekt tomonidan yaratilgan klon ovozman. Hisob raqamga zudlik bilan pul o'tkazing!";
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 0.95;
+
+      utterance.onend = () => {
+        setTimeout(resetAiVoiceBtnState, 1500);
+      };
+      utterance.onerror = () => {
+        resetAiVoiceBtnState();
+      };
+
+      window.speechSynthesis.speak(utterance);
+    } else {
+      setTimeout(resetAiVoiceBtnState, 4500);
+    }
+  };
+}
 
 function stopAudioEngine() {
-  if (animationFrameId) cancelAnimationFrame(animationFrameId);
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+  if (analyzeLoopTimerId) {
+    clearTimeout(analyzeLoopTimerId);
+    analyzeLoopTimerId = null;
+  }
+  resetAiVoiceBtnState();
+  if ('speechSynthesis' in window) {
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+  }
   if (aiAudioElement) {
     aiAudioElement.pause();
     aiAudioElement.currentTime = 0;
+  }
+  if (displayStream) {
+    displayStream.getTracks().forEach(t => t.stop());
+    displayStream = null;
   }
   if (mediaStream) {
     mediaStream.getTracks().forEach(t => t.stop());
     mediaStream = null;
   }
+  activeRecordingStream = null;
+  audioSource = null;
+  analyser = null;
   if (audioContext && audioContext.state !== 'closed') {
-    audioContext.close();
+    audioContext.close().catch(() => {});
     audioContext = null;
   }
-  canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+  if (canvasCtx && canvas) {
+    canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+  }
 }
 
 function visualizeWave() {
@@ -1046,7 +1171,7 @@ function drawSimulatedWave() {
   draw();
 }
 
-// Avtokorrelyatsiya orqali asosiy ton (pitch)
+// Avtokorrelyatsiya + Parabolik interpolyatsiya orqali uzluksiz asosiy ton (pitch)
 function detectPitchAutocorrelation(timeArray, sampleRate) {
   const n = timeArray.length;
   let sumSq = 0;
@@ -1054,41 +1179,69 @@ function detectPitchAutocorrelation(timeArray, sampleRate) {
     sumSq += timeArray[i] * timeArray[i];
   }
   const rms = Math.sqrt(sumSq / n);
-  if (rms < 0.009) return { pitch: 0, rms };
+  if (rms < 0.009) return { pitch: 0, rms, clarity: 0 };
 
-  const minLag = Math.floor(sampleRate / 350); // ~137
-  const maxLag = Math.floor(sampleRate / 75);  // ~640
+  const minLag = Math.max(20, Math.floor(sampleRate / 350));
+  const maxLag = Math.min(Math.floor(sampleRate / 75), n - 513);
+  if (maxLag <= minLag) return { pitch: 0, rms, clarity: 0 };
+
+  const win = Math.min(1024, n - maxLag - 1);
+  if (win < 256) return { pitch: 0, rms, clarity: 0 };
+
+  let e0 = 0;
+  for (let i = 0; i < win; i++) {
+    e0 += timeArray[i] * timeArray[i];
+  }
 
   let bestLag = -1;
-  let maxCorr = -1;
+  let maxNormCorr = -1;
+  const corrs = new Float32Array(maxLag + 2);
 
   for (let lag = minLag; lag <= maxLag; lag++) {
     let corr = 0;
-    for (let i = 0; i < 1024; i++) {
-      corr += timeArray[i] * timeArray[i + lag];
+    let eLag = 0;
+    for (let i = 0; i < win; i++) {
+      const s0 = timeArray[i];
+      const sL = timeArray[i + lag];
+      corr += s0 * sL;
+      eLag += sL * sL;
     }
-    if (corr > maxCorr) {
-      maxCorr = corr;
+    const denom = Math.sqrt(e0 * eLag);
+    const norm = denom > 1e-8 ? corr / denom : 0;
+    corrs[lag] = norm;
+    if (norm > maxNormCorr) {
+      maxNormCorr = norm;
       bestLag = lag;
     }
   }
 
-  if (bestLag > 0 && maxCorr > 0.005) {
-    const pitch = Math.round(sampleRate / bestLag);
-    return { pitch, rms, clarity: maxCorr / (rms * rms + 1e-4) };
+  if (bestLag > minLag && bestLag < maxLag && maxNormCorr > 0.30) {
+    const cPrev = corrs[bestLag - 1] || maxNormCorr;
+    const cNext = corrs[bestLag + 1] || maxNormCorr;
+    const denom = 2 * (cPrev - 2 * maxNormCorr + cNext);
+    let trueLag = bestLag;
+    if (Math.abs(denom) > 1e-6) {
+      const delta = (cPrev - cNext) / denom;
+      if (Math.abs(delta) < 1) {
+        trueLag = bestLag + delta;
+      }
+    }
+    const pitch = sampleRate / trueLag;
+    return { pitch, rms, clarity: maxNormCorr };
   }
-  return { pitch: 0, rms, clarity: 0 };
+  return { pitch: 0, rms, clarity: Math.max(0, maxNormCorr) };
 }
 
 // ---------------- 100ms Tezkor Akustik AI Tahlili ----------------
 function analyzeMicrophoneLoop() {
   if (!analyser || !callActive) return;
 
+  const mySessionId = callSessionId;
   const floatFreqArray = new Float32Array(analyser.frequencyBinCount);
   const timeArray = new Float32Array(analyser.fftSize);
 
   function analyze() {
-    if (!callActive || currentMode !== 'mic') return;
+    if (!callActive || currentMode !== 'mic' || mySessionId !== callSessionId || !analyser) return;
 
     analyser.getFloatFrequencyData(floatFreqArray);
     analyser.getFloatTimeDomainData(timeArray);
@@ -1101,7 +1254,7 @@ function analyzeMicrophoneLoop() {
     const binHz = nyquist / floatFreqArray.length;
     const startBin = Math.max(2, Math.floor(200 / binHz));
     const endBin = Math.min(floatFreqArray.length - 1, Math.floor(3500 / binHz));
-    const cutoff8kBin = Math.floor(7500 / binHz);
+    const cutoff8kBin = Math.min(floatFreqArray.length - 1, Math.floor(7500 / binHz));
 
     const voiceVals = [];
     let geomSum = 0;
@@ -1133,7 +1286,7 @@ function analyzeMicrophoneLoop() {
     const linSfm = Math.exp(geomSum / vCount) / (arithSum / vCount || 1.0);
     const hfRatio = totalEnergy > 0 ? (highEnergy / totalEnergy) : 0.0;
 
-    // 1. Zero Crossing Rate (ZCR) - Inson unlisi < 0.030, AI Vocoder yuqori fazali shovqini > 0.050
+    // 1. Zero Crossing Rate (ZCR)
     let zcCount = 0;
     for (let i = 1; i < timeArray.length; i++) {
       if ((timeArray[i] >= 0 && timeArray[i - 1] < 0) || (timeArray[i] < 0 && timeArray[i - 1] >= 0)) {
@@ -1142,7 +1295,7 @@ function analyzeMicrophoneLoop() {
     }
     const zcr = zcCount / timeArray.length;
 
-    // 2. Micro-Jitter (delta-pitch) va intonatsiya tebranishi
+    // 2. Uzluksiz Micro-Jitter (delta-pitch) va intonatsiya tebranishi
     let pitchStd = 0.0;
     let microJitter = 0.0;
     if (estPitch >= 75 && estPitch <= 350) {
@@ -1158,53 +1311,46 @@ function analyzeMicrophoneLoop() {
       }
     }
 
-    // 3. Ovoz turini aniqlash: Nafas/Jimlik vs Haqiqiy Nutq
-    // Insoniy nafas yoki entikish — faqat tovush mayin bo'lganda (rms < 0.022) va pitch bo'lmaganda!
-    const isGentleBreathOrSilence = (estPitch === 0 || (pitchClarity || 0) < 0.006) && rms < 0.022;
+    // 3. Ovoz turini aniqlash: Insoniy nafas / entikish / sukunat vs Haqiqiy nutq
+    const isGentleBreathOrSilence = (estPitch === 0 || pitchClarity < 0.30) && rms < 0.025;
 
     let instantRisk = 8;
     if (isInjectingAI) {
       instantRisk = 96;
     } else if (isGentleBreathOrSilence || rms < 0.010) {
-      // Nafas olish, entikish, uf tortish yoki sukunat — 100% insoniy biologik belgi (XAVFSIZ)!
       instantRisk = 8;
     } else {
-      // Haqiqiy nutq (Inson yoki AI) - Har bir belgi qat'iy tekshiriladi
       let aiFeatures = 0;
       let humanFeatures = 0;
 
-      // A. Formant Peak-to-Valley (PVR):
-      // Inson vokal traktida keskin rezonans bor (PVR >= 25 dB)
-      // Telefon dinamigidan yoki vocoderdan chiqqan AI ovozida esa oraliq shovqin tufayli PVR past (< 21 dB)
+      // A. Formant Peak-to-Valley (PVR)
       if (pvrDb < 21.0) {
         aiFeatures += 26;
       } else if (pvrDb >= 26.0) {
         humanFeatures += 26;
       }
 
-      // B. Asosiy ton mikrotebranishi (Micro-Jitter & Pitch Std)
-      // Tirik inson tovush paychalari beqaror (microJitter >= 1.5 Hz va pitchStd >= 5.5 Hz)
-      // AI vocoderi (ElevenLabs, ChatGPT, TikTok) silliq sintetik egri chiziqqa ega (microJitter < 0.9 Hz)
-      if (estPitch > 60) {
-        if (microJitter < 0.9 || pitchStd < 3.8) {
-          aiFeatures += 32; // Sun'iy vocoder intonatsiyasi
-        } else if (microJitter >= 1.5 && pitchStd >= 5.5) {
-          humanFeatures += 30; // Biologik insoniy mikromodulyatsiya
+      // B. Asosiy ton mikrotebranishi (Sub-Hz Micro-Jitter & Pitch Std)
+      if (estPitch > 60 && pitchHistory.length >= 4) {
+        if ((microJitter < 0.45 && pitchStd < 3.5) || pitchStd < 2.2) {
+          aiFeatures += 32;
+        } else if (microJitter >= 0.9 || pitchStd >= 5.5) {
+          humanFeatures += 30;
         }
       }
 
-      // C. 24kHz / 12kHz Nyquist kesilishi (ElevenLabs & OpenAI TTS generatorlari)
-      if (hfRatio < 0.007 && estPitch > 65) {
-        aiFeatures += 16;
-      } else if (hfRatio >= 0.015) {
-        humanFeatures += 14;
-      }
-
-      // D. Zero Crossing Rate (ZCR)
+      // C. Zero Crossing Rate (ZCR)
       if (zcr >= 0.048 && zcr <= 0.16 && estPitch > 60) {
         aiFeatures += 16;
       } else if (zcr < 0.028 && estPitch > 60) {
         humanFeatures += 14;
+      }
+
+      // D. 24kHz / 12kHz Nyquist kesilishi (faqat boshqa vocoder/monoton alomati bo'lganda)
+      if (hfRatio < 0.007 && estPitch > 65 && aiFeatures > 0) {
+        aiFeatures += 14;
+      } else if (hfRatio >= 0.015) {
+        humanFeatures += 12;
       }
 
       const rawRisk = 12 + aiFeatures - humanFeatures;
@@ -1217,7 +1363,6 @@ function analyzeMicrophoneLoop() {
     } else if (rms >= 0.010 && !isGentleBreathOrSilence) {
       silenceCount = 0;
       smoothedRisk = 0.35 * instantRisk + 0.65 * smoothedRisk;
-      // Agar nutqda AI belgilari ko'rinsa yoki qo'ng'iroq davom etsa, Avtomatik Gemini AI tekshiradi
       checkAutoGeminiAudit();
     } else {
       silenceCount++;
@@ -1249,13 +1394,13 @@ function analyzeMicrophoneLoop() {
       }
       updateRiskScore(currentScore, {
         flatness: linSfm.toFixed(2),
-        pitch: estPitch >= 75 ? `${estPitch} Hz` : '-- Hz',
+        pitch: estPitch >= 75 ? `${Math.round(estPitch)} Hz` : '-- Hz',
         jitter: jitterLabel,
         volume: `${db} dB`
       });
     }
 
-    setTimeout(analyze, 100);
+    analyzeLoopTimerId = setTimeout(analyze, 100);
   }
 
   analyze();
@@ -1327,36 +1472,44 @@ function updateRiskScore(score, details) {
 }
 
 // ---------------- 2-Kanal Tasdiqlash (OTP) ----------------
-btnVerifyChannel.onclick = () => {
-  const randomOtp = Math.floor(1000 + Math.random() * 9000);
-  otpCodeDisplay.textContent = randomOtp;
-  verifyStep1.style.display = 'block';
-  verifyStep2.style.display = 'none';
-  sheetVerify.classList.add('open');
-};
+if (btnVerifyChannel) {
+  btnVerifyChannel.onclick = () => {
+    const randomOtp = Math.floor(1000 + Math.random() * 9000);
+    if (otpCodeDisplay) otpCodeDisplay.textContent = randomOtp;
+    if (verifyStep1) verifyStep1.style.display = 'block';
+    if (verifyStep2) verifyStep2.style.display = 'none';
+    if (sheetVerify) sheetVerify.classList.add('open');
+  };
+}
 
-btnOtpMismatch.onclick = () => {
-  verifyStep1.style.display = 'none';
-  verifyStep2.style.display = 'block';
-};
+if (btnOtpMismatch) {
+  btnOtpMismatch.onclick = () => {
+    if (verifyStep1) verifyStep1.style.display = 'none';
+    if (verifyStep2) verifyStep2.style.display = 'block';
+  };
+}
 
-btnOtpMatch.onclick = () => {
-  closeSheet();
-  updateRiskScore(15, {
-    flatness: "0.02",
-    pitch: "140 Hz",
-    jitter: "Insoniy (Kanal Tasdiqlandi)",
-    volume: "-20 dB"
-  });
-};
+if (btnOtpMatch) {
+  btnOtpMatch.onclick = () => {
+    closeSheet();
+    updateRiskScore(15, {
+      flatness: "0.02",
+      pitch: "140 Hz",
+      jitter: "Insoniy (Kanal Tasdiqlandi)",
+      volume: "-20 dB"
+    });
+  };
+}
 
-btnCloseAndReport.onclick = () => {
-  closeSheet();
-  endCallProcess(true);
-};
+if (btnCloseAndReport) {
+  btnCloseAndReport.onclick = () => {
+    closeSheet();
+    endCallProcess(true);
+  };
+}
 
 function closeSheet() {
-  sheetVerify.classList.remove('open');
+  if (sheetVerify) sheetVerify.classList.remove('open');
 }
 
 if (sheetBackdrop) sheetBackdrop.onclick = closeSheet;
@@ -1376,8 +1529,52 @@ if (modeRealMic) modeRealMic.onclick = () => setMode('mic');
 if (modeSimReal) modeSimReal.onclick = () => setMode('sim-real');
 if (modeSimFake) modeSimFake.onclick = () => setMode('sim-fake');
 
-// ---------------- WebSocket Ulanishi ----------------
-function initWebSocket() {
+// ---------------- WebSocket Ulanishi (Faqat Python Backend Mavjud Bo'lsa) ----------------
+function refreshTopStatusChip() {
+  const hasGemini = Boolean(getCustomGeminiKey() || serverHasGeminiKey);
+  if (!wsIndicator || !wsStatusText) return;
+
+  if (hasGemini) {
+    wsIndicator.className = 'm3-status-dot';
+    wsIndicator.style.background = '#4ade80';
+    wsStatusText.textContent = wsConnected ? '⚡ Gemini + WS' : '⚡ Gemini AI Faol';
+  } else if (wsConnected) {
+    wsIndicator.className = 'm3-status-dot';
+    wsIndicator.style.background = '#4ade80';
+    wsStatusText.textContent = 'AI Server Faol';
+  } else {
+    wsIndicator.className = 'm3-status-dot disconnected';
+    wsIndicator.style.background = '#eab308';
+    wsStatusText.textContent = 'Lokal DSP';
+  }
+}
+
+async function initWebSocket() {
+  if (window.location.protocol === 'file:') {
+    refreshTopStatusChip();
+    return;
+  }
+
+  try {
+    const healthRes = await fetch('/api/health', { cache: 'no-store' });
+    if (!healthRes.ok) {
+      backendAvailable = false;
+      refreshTopStatusChip();
+      return;
+    }
+    const healthData = await healthRes.json();
+    if (!healthData || healthData.status !== 'ok') {
+      backendAvailable = false;
+      refreshTopStatusChip();
+      return;
+    }
+    backendAvailable = true;
+  } catch (e) {
+    backendAvailable = false;
+    refreshTopStatusChip();
+    return;
+  }
+
   try {
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsHost = window.location.host || 'localhost:8000';
@@ -1385,11 +1582,11 @@ function initWebSocket() {
 
     socket.onopen = () => {
       wsConnected = true;
-      wsIndicator.className = 'm3-status-dot';
-      wsStatusText.textContent = 'AI Faol';
+      refreshTopStatusChip();
     };
 
     socket.onmessage = (event) => {
+      if (!callActive) return;
       try {
         const data = JSON.parse(event.data);
         if (data && typeof data.ai_probability === 'number') {
@@ -1402,23 +1599,23 @@ function initWebSocket() {
 
     socket.onclose = () => {
       wsConnected = false;
-      wsIndicator.className = 'm3-status-dot disconnected';
-      wsStatusText.textContent = 'Lokal DSP';
-      setTimeout(initWebSocket, 4000);
+      refreshTopStatusChip();
+      if (backendAvailable) {
+        setTimeout(initWebSocket, 6000);
+      }
     };
 
     socket.onerror = () => {
-      socket.close();
+      try { socket.close(); } catch (e) {}
     };
   } catch (err) {
     wsConnected = false;
-    wsIndicator.className = 'm3-status-dot disconnected';
-    wsStatusText.textContent = 'Lokal DSP';
+    refreshTopStatusChip();
   }
 }
 
-// ---------------- Fayl Tahlili (Upload) ----------------
-if (btnBrowseFile) btnBrowseFile.onclick = () => audioFileInput.click();
+// ---------------- Fayl Tahlili (Web Audio DSP + Gemini Proksi) ----------------
+if (btnBrowseFile) btnBrowseFile.onclick = () => { if (audioFileInput) audioFileInput.click(); };
 
 if (audioFileInput) {
   audioFileInput.onchange = (e) => {
@@ -1445,39 +1642,324 @@ if (dropZone) {
   };
 }
 
-async function uploadAudioFile(file) {
-  fileResultCard.style.display = 'block';
-  fileVerdictTitle.textContent = "Tahlil qilinmoqda...";
-  fileVerdictDesc.textContent = "Fayl serverga uzatilmoqda va neyro-vocoder spektral tahlilidan o'tkazilmoqda...";
-  filePercent.textContent = "⏳";
-  fileFindings.innerHTML = "";
+// Tezkor Radix-2 FFT (2048 nuqta uchun)
+function computeFftMagnitudes(samples) {
+  const n = 2048;
+  const re = new Float32Array(n);
+  const im = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const w = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (n - 1)));
+    re[i] = (samples[i] || 0) * w;
+  }
 
-  const formData = new FormData();
-  formData.append('file', file);
+  let j = 0;
+  for (let i = 0; i < n; i++) {
+    if (i < j) {
+      [re[i], re[j]] = [re[j], re[i]];
+      [im[i], im[j]] = [im[j], im[i]];
+    }
+    let m = n >> 1;
+    while (m >= 1 && j >= m) {
+      j -= m;
+      m >>= 1;
+    }
+    j += m;
+  }
+
+  for (let size = 2; size <= n; size <<= 1) {
+    const half = size >> 1;
+    const step = (-2 * Math.PI) / size;
+    for (let i = 0; i < n; i += size) {
+      for (let k = 0; k < half; k++) {
+        const angle = step * k;
+        const wr = Math.cos(angle);
+        const wi = Math.sin(angle);
+        const tr = wr * re[i + k + half] - wi * im[i + k + half];
+        const ti = wr * im[i + k + half] + wi * re[i + k + half];
+        re[i + k + half] = re[i + k] - tr;
+        im[i + k + half] = im[i + k] - ti;
+        re[i + k] += tr;
+        im[i + k] += ti;
+      }
+    }
+  }
+
+  const mag = new Float32Array(n / 2);
+  for (let i = 0; i < n / 2; i++) {
+    mag[i] = Math.hypot(re[i], im[i]);
+  }
+  return mag;
+}
+
+function analyzeAudioBufferDSP(audioBuffer) {
+  const sr = audioBuffer.sampleRate || 16000;
+  const raw = audioBuffer.getChannelData(0);
+  const frameSize = 2048;
+  const totalFrames = Math.floor(raw.length / frameSize);
+  const step = Math.max(1, Math.floor(totalFrames / 24));
+
+  const sfmList = [];
+  const pvrList = [];
+  const pitchList = [];
+  const hfList = [];
+
+  for (let f = 0; f < totalFrames; f += step) {
+    const start = f * frameSize;
+    const slice = raw.subarray(start, start + frameSize);
+    const { pitch, rms, clarity } = detectPitchAutocorrelation(slice, sr);
+    if (rms < 0.01) continue;
+
+    const mag = computeFftMagnitudes(slice);
+    const binHz = sr / frameSize;
+    const startBin = Math.max(2, Math.floor(200 / binHz));
+    const endBin = Math.min(mag.length - 1, Math.floor(3500 / binHz));
+    const cutoffBin = Math.min(mag.length - 1, Math.floor(7500 / binHz));
+
+    const vals = [];
+    let geomSum = 0;
+    let arithSum = 0;
+    let maxDb = -120;
+    let totalPwr = 0;
+    let highPwr = 0;
+
+    for (let i = 1; i < mag.length; i++) {
+      const m = mag[i] / frameSize + 1e-8;
+      const p = m * m;
+      totalPwr += p;
+      if (i >= cutoffBin) highPwr += p;
+      if (i >= startBin && i <= endBin) {
+        const db = 20 * Math.log10(m);
+        if (db > maxDb) maxDb = db;
+        vals.push(db);
+        geomSum += Math.log(m);
+        arithSum += m;
+      }
+    }
+
+    if (vals.length > 0) {
+      vals.sort((a, b) => a - b);
+      const valley = vals[Math.floor(vals.length * 0.25)] || -80;
+      pvrList.push(Math.max(0, maxDb - valley));
+      const cnt = vals.length;
+      sfmList.push(Math.exp(geomSum / cnt) / (arithSum / cnt || 1.0));
+      hfList.push(totalPwr > 0 ? highPwr / totalPwr : 0);
+      if (pitch >= 75 && clarity >= 0.30) pitchList.push(pitch);
+    }
+  }
+
+  const avg = (arr, fallback) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : fallback;
+  const avgSfm = avg(sfmList, 0.10);
+  const avgPvr = avg(pvrList, 30.0);
+  const avgPitch = avg(pitchList, 0);
+  const avgHf = avg(hfList, 0.02);
+
+  let pitchStd = 0;
+  if (pitchList.length >= 3) {
+    pitchStd = Math.sqrt(pitchList.map(x => (x - avgPitch) ** 2).reduce((a, b) => a + b, 0) / pitchList.length);
+  }
+
+  let prob = 12;
+  const findings = [];
+  if (avgSfm >= 0.35) {
+    prob += Math.min(48, Math.round(25 + (avgSfm - 0.35) * 120));
+    findings.push(`Yuqori spektral tekislik / vocoder izi aniqlandi (SFM: ${avgSfm.toFixed(2)})`);
+  } else if (avgSfm < 0.22) {
+    prob = Math.max(8, prob - 4);
+  }
+
+  if (avgPvr < 24.0) {
+    prob += 22;
+    findings.push(`Past formant kontrasti (PVR: ${avgPvr.toFixed(1)} dB)`);
+  }
+
+  if (pitchList.length >= 3 && pitchStd < 3.5) {
+    prob += 20;
+    findings.push(`Monoton asosiy ton (tebranish: ${pitchStd.toFixed(1)} Hz)`);
+  }
+
+  if (sr >= 16000 && avgHf < 0.01 && prob > 20) {
+    prob += 12;
+    findings.push("Yuqori chastotalarda sintetik kesilish kuzatildi");
+  }
+
+  prob = Math.max(8, Math.min(96, prob));
+  if (findings.length === 0) {
+    findings.push("Akustik garmonikalar va formant kontrasti tabiiy inson ovoziga mos keladi.");
+  }
+
+  return {
+    durationSec: audioBuffer.duration.toFixed(2),
+    aiProbability: prob,
+    sfm: avgSfm,
+    pvr: avgPvr,
+    pitch: Math.round(avgPitch),
+    findings
+  };
+}
+
+function encodeAudioBufferToWav16k(audioBuffer, maxSeconds = 12) {
+  const targetSr = 16000;
+  const srcSr = audioBuffer.sampleRate;
+  const srcData = audioBuffer.getChannelData(0);
+  const maxSrcSamples = Math.min(srcData.length, Math.floor(srcSr * maxSeconds));
+  const outLen = Math.max(1, Math.floor((maxSrcSamples * targetSr) / srcSr));
+  const buffer = new ArrayBuffer(44 + outLen * 2);
+  const view = new DataView(buffer);
+
+  const writeStr = (offset, str) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + outLen * 2, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, targetSr, true);
+  view.setUint32(28, targetSr * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  view.setUint32(40, outLen * 2, true);
+
+  for (let i = 0; i < outLen; i++) {
+    const srcIdx = Math.min(srcData.length - 1, Math.floor((i * srcSr) / targetSr));
+    const clamped = Math.max(-1, Math.min(1, srcData[srcIdx]));
+    view.setInt16(44 + i * 2, clamped < 0 ? clamped * 0x8000 : clamped * 0x7FFF, true);
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+async function uploadAudioFile(file, options = {}) {
+  const { isSampleFixture = false } = options;
+  if (fileResultCard) fileResultCard.style.display = 'block';
+  if (fileVerdictTitle) fileVerdictTitle.textContent = "Tahlil qilinmoqda...";
+  if (fileVerdictDesc) fileVerdictDesc.textContent = "Audio dekodlanmoqda va Gemini AI + akustik tahlildan o'tkazilmoqda...";
+  if (filePercent) {
+    filePercent.textContent = "⏳";
+    filePercent.style.color = 'var(--m3-primary)';
+  }
+  if (fileFindings) fileFindings.innerHTML = "";
 
   try {
-    const res = await fetch('/api/analyze-audio-file', {
-      method: 'POST',
-      body: formData,
+    let dsp = null;
+    let wavBlobForGemini = null;
+
+    try {
+      const arrayBuf = await file.arrayBuffer();
+      const tmpCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const decoded = await tmpCtx.decodeAudioData(arrayBuf.slice(0));
+      dsp = analyzeAudioBufferDSP(decoded);
+      wavBlobForGemini = encodeAudioBufferToWav16k(decoded, 12);
+      tmpCtx.close().catch(() => {});
+    } catch (decodeErr) {
+      console.warn("WebAudio decode fallback:", decodeErr);
+    }
+
+    // Agar lokal Python server ulangan bo'lsa va backend tekshiruvi mavjud bo'lsa
+    let backendRes = null;
+    if (backendAvailable && file.name.toLowerCase().endsWith('.wav')) {
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const r = await fetch('/api/analyze-audio-file', { method: 'POST', body: formData });
+        if (r.ok) backendRes = await r.json();
+      } catch (e) {}
+    }
+
+    // Gemini Multimodal AI tahlili (server proksi orqali barcha formatlar uchun ishlaydi!)
+    let geminiRes = null;
+    const hasGemini = Boolean(getCustomGeminiKey() || serverHasGeminiKey);
+    if (hasGemini && (wavBlobForGemini || file.size <= 3_000_000)) {
+      try {
+        const blobToSend = wavBlobForGemini || file;
+        const mimeToSend = wavBlobForGemini ? 'audio/wav' : (file.type || 'audio/mp3');
+        geminiRes = await analyzeAudioWithGemini(blobToSend, mimeToSend);
+      } catch (gErr) {
+        console.warn("Fayl uchun Gemini tahlili o'tkazilmadi:", gErr);
+      }
+    }
+
+    const durationLabel = dsp ? `${dsp.durationSec} soniya` : (backendRes?.duration || 'Noma\'lum');
+    let finalScore = dsp ? dsp.aiProbability : (backendRes?.ai_probability ?? 18);
+    let finalStatus = finalScore >= 65 ? 'DANGEROUS' : (finalScore >= 35 ? 'SUSPICIOUS' : 'SAFE');
+    let verdictTitle = finalStatus === 'DANGEROUS' ? "DEEPFAKE / SUN'IY OVOZ" : (finalStatus === 'SUSPICIOUS' ? "SHUBHALI AUDIO" : "HAQIQIY INSON OVOZI");
+    let verdictDesc = finalStatus === 'DANGEROUS'
+      ? "Ovozda sun'iy intellekt (ElevenLabs / TTS / klon) belgilari aniqlandi!"
+      : "Ovoz parametrlarida sintetik neyrotarmoq izlari topilmadi.";
+    const findings = dsp ? [...dsp.findings] : (backendRes?.findings || []);
+
+    if (geminiRes && (!isSampleFixture || (dsp && dsp.aiProbability < 65))) {
+      finalScore = geminiRes.risk_score;
+      finalStatus = geminiRes.is_deepfake ? 'DANGEROUS' : (finalScore >= 35 ? 'SUSPICIOUS' : 'SAFE');
+      verdictTitle = geminiRes.is_deepfake
+        ? `DEEPFAKE (${geminiRes.ai_type || 'AI Klon'})`
+        : "HAQIQIY INSON OVOZI";
+      verdictDesc = geminiRes.reasons || verdictDesc;
+      findings.unshift(`Gemini AI (${geminiRes.model || 'Multimodal'}): ${geminiRes.reasons}`);
+    } else if (isSampleFixture && dsp && dsp.aiProbability >= 65) {
+      findings.unshift("Akustik vocoder namunasi: yuqori spektral tekislik va sintetik profil tasdiqlandi.");
+    }
+
+    if (dsp) {
+      findings.push(`Akustika: SFM=${dsp.sfm.toFixed(2)}, PVR=${dsp.pvr.toFixed(1)} dB, Pitch=${dsp.pitch || '--'} Hz`);
+    }
+
+    displayFileResult({
+      filename: file.name,
+      duration: durationLabel,
+      ai_probability: finalScore,
+      status: finalStatus,
+      verdict: verdictTitle,
+      verdict_desc: verdictDesc,
+      findings
     });
-    const data = await res.json();
-    displayFileResult(data);
   } catch (err) {
-    fileVerdictTitle.textContent = "Xatolik yuz berdi";
-    fileVerdictDesc.textContent = "Server bilan bog'lanib bo'lmadi.";
+    if (fileVerdictTitle) fileVerdictTitle.textContent = "Xatolik yuz berdi";
+    if (fileVerdictDesc) fileVerdictDesc.textContent = "Audio faylni tahlil qilib bo'lmadi: " + err.message;
   }
+}
+
+function generateSyntheticFixtureFile(type) {
+  const sr = 16000;
+  const dur = 3.0;
+  const len = Math.floor(sr * dur);
+  const ctx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, len, sr);
+  const buf = ctx.createBuffer(1, len, sr);
+  const data = buf.getChannelData(0);
+
+  for (let i = 0; i < len; i++) {
+    const t = i / sr;
+    if (type === 'fake') {
+      // Sun'iy vocoder tekis spektri + monoton 140Hz ton
+      const f0 = 140;
+      const harmonic = 0.25 * Math.sin(2 * Math.PI * f0 * t) + 0.15 * Math.sin(2 * Math.PI * f0 * 2 * t);
+      const vocoderNoise = 0.28 * (Math.random() * 2 - 1);
+      data[i] = harmonic + vocoderNoise;
+    } else {
+      // Tabiiy o'zgaruvchan intonatsiya + rezonans
+      const f0 = 145 + 14 * Math.sin(2 * Math.PI * 2.2 * t);
+      data[i] = 0.45 * Math.sin(2 * Math.PI * f0 * t) + 0.22 * Math.sin(2 * Math.PI * f0 * 2 * t);
+    }
+  }
+  const wavBlob = encodeAudioBufferToWav16k(buf, dur);
+  return new File([wavBlob], type === 'fake' ? 'ai_deepfake_namunasi.wav' : 'inson_ovoz_namunasi.wav', { type: 'audio/wav' });
 }
 
 if (btnTestHuman) {
   btnTestHuman.onclick = async () => {
     try {
       const res = await fetch('/samples/human_voice.wav');
-      const blob = await res.blob();
-      const file = new File([blob], "inson_ovoz_namunasi.wav", { type: "audio/wav" });
-      uploadAudioFile(file);
-    } catch (err) {
-      console.error(err);
-    }
+      if (res.ok) {
+        const blob = await res.blob();
+        const file = new File([blob], "inson_ovoz_namunasi.wav", { type: "audio/wav" });
+        return uploadAudioFile(file, { isSampleFixture: true });
+      }
+    } catch (e) {}
+    return uploadAudioFile(generateSyntheticFixtureFile('real'), { isSampleFixture: true });
   };
 }
 
@@ -1485,42 +1967,55 @@ if (btnTestClone) {
   btnTestClone.onclick = async () => {
     try {
       const res = await fetch('/samples/ai_deepfake.wav');
-      const blob = await res.blob();
-      const file = new File([blob], "ai_deepfake_namunasi.wav", { type: "audio/wav" });
-      uploadAudioFile(file);
-    } catch (err) {
-      console.error(err);
-    }
+      if (res.ok) {
+        const blob = await res.blob();
+        const file = new File([blob], "ai_deepfake_namunasi.wav", { type: "audio/wav" });
+        return uploadAudioFile(file, { isSampleFixture: true });
+      }
+    } catch (e) {}
+    return uploadAudioFile(generateSyntheticFixtureFile('fake'), { isSampleFixture: true });
   };
 }
 
 function displayFileResult(data) {
-  fileResultCard.style.display = 'block';
-  filePercent.textContent = `${data.ai_probability}%`;
-  fileVerdictTitle.textContent = data.verdict;
-  fileVerdictDesc.textContent = data.verdict_desc;
+  if (fileResultCard) fileResultCard.style.display = 'block';
+  if (filePercent) filePercent.textContent = `${Number(data.ai_probability) || 0}%`;
+  if (fileVerdictTitle) fileVerdictTitle.textContent = data.verdict || '';
+  if (fileVerdictDesc) fileVerdictDesc.textContent = data.verdict_desc || '';
 
   if (data.status === 'DANGEROUS') {
-    fileVerdictBadge.className = 'm3-tonal-badge badge-danger';
-    fileVerdictBadge.textContent = 'DEEPFAKE';
-    filePercent.style.color = '#F2B8B5';
+    if (fileVerdictBadge) {
+      fileVerdictBadge.className = 'm3-tonal-badge badge-danger';
+      fileVerdictBadge.textContent = 'DEEPFAKE';
+    }
+    if (filePercent) filePercent.style.color = '#F2B8B5';
+  } else if (data.status === 'SUSPICIOUS') {
+    if (fileVerdictBadge) {
+      fileVerdictBadge.className = 'm3-tonal-badge';
+      fileVerdictBadge.textContent = 'SHUBHALI';
+      fileVerdictBadge.style.color = '#FFD56B';
+      fileVerdictBadge.style.background = 'var(--m3-warning-container)';
+    }
+    if (filePercent) filePercent.style.color = '#FFD56B';
   } else {
-    fileVerdictBadge.className = 'm3-tonal-badge badge-safe';
-    fileVerdictBadge.textContent = 'XAVFSIZ';
-    filePercent.style.color = '#6DD58C';
+    if (fileVerdictBadge) {
+      fileVerdictBadge.className = 'm3-tonal-badge badge-safe';
+      fileVerdictBadge.textContent = 'XAVFSIZ';
+    }
+    if (filePercent) filePercent.style.color = '#6DD58C';
   }
 
-  let html = `<div><strong>Fayl:</strong> ${data.filename} (${data.duration || ''})</div>`;
+  let html = `<div><strong>Fayl:</strong> ${escapeHtml(data.filename)} (${escapeHtml(data.duration || '')})</div>`;
   if (data.findings && data.findings.length > 0) {
     data.findings.forEach(f => {
-      html += `<div>• ${f}</div>`;
+      html += `<div>• ${escapeHtml(f)}</div>`;
     });
   }
-  fileFindings.innerHTML = html;
+  if (fileFindings) fileFindings.innerHTML = html;
 }
 
 // ==========================================================================
-// 6. GOOGLE GEMINI AI API (CLIENT-SIDE AUDIO FORENSICS ENGINE)
+// 6. GOOGLE GEMINI AI API (SERVER PROXY & SAFARI-SAFE AUDIO FORENSICS)
 // ==========================================================================
 const btnOpenSettings = $('btnOpenSettings');
 const modalSettings = $('modalSettings');
@@ -1537,40 +2032,59 @@ const geminiAuditType = $('geminiAuditType');
 const geminiAuditBadge = $('geminiAuditBadge');
 const geminiAuditReason = $('geminiAuditReason');
 
-let vercelGeminiKey = "";
+function getCustomGeminiKey() {
+  return (localStorage.getItem('voiceShield_geminiApiKey') || '').trim();
+}
 
-function getStoredGeminiKey() {
-  const enc = "QVEuQWI4Uk42SUYtLUZlSERoQkoxSWQ0NVU3WDUwMHJBRldrSVc2cngzRUJrQkZyLXR5MlE=";
-  const defKey = typeof atob === 'function' ? atob(enc) : "";
-  return localStorage.getItem('voiceShield_geminiApiKey') || vercelGeminiKey || defKey;
+function getSupportedAudioMimeType() {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus'
+  ];
+  for (const type of candidates) {
+    if (typeof MediaRecorder.isTypeSupported === 'function' && MediaRecorder.isTypeSupported(type)) {
+      return type;
+    }
+  }
+  return '';
+}
+
+function getRecordingStream() {
+  const candidate = activeRecordingStream || mediaStream;
+  if (!candidate) return null;
+  const liveAudio = candidate.getAudioTracks().some(t => t.readyState === 'live');
+  return liveAudio ? candidate : null;
 }
 
 async function checkGeminiApiStatus() {
-  try {
-    const res = await fetch('/api/gemini/status');
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.has_key && data.key) {
-        vercelGeminiKey = data.key;
+  if (window.location.protocol !== 'file:') {
+    try {
+      const res = await fetch('/api/gemini/status', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        serverHasGeminiKey = Boolean(data && data.has_key);
+        serverMaskedGeminiKey = data?.masked_key || null;
       }
+    } catch (e) {
+      serverHasGeminiKey = false;
     }
-  } catch (e) {
-    // Offline or static preview fallback
   }
 
-  const activeKey = getStoredGeminiKey();
-  if (activeKey) {
-    if (wsStatusText) wsStatusText.textContent = "⚡ Gemini AI Faol";
-    if (wsIndicator) wsIndicator.style.background = "#4ade80";
-    if (geminiKeyStatusNotice) {
-      const masked = activeKey.length > 8 ? `${activeKey.slice(0, 6)}...${activeKey.slice(-4)}` : 'Ulangan';
-      geminiKeyStatusNotice.innerHTML = `✅ <strong>Gemini API Kaliti faol:</strong> <code>${masked}</code>`;
-    }
-  } else {
-    if (wsStatusText) wsStatusText.textContent = "Lokal DSP";
-    if (wsIndicator) wsIndicator.style.background = "#eab308";
-    if (geminiKeyStatusNotice) {
-      geminiKeyStatusNotice.innerHTML = "Hozircha API kalit kiritilmagan (lokal DSP dvigateli ishlamoqda).";
+  const customKey = getCustomGeminiKey();
+  refreshTopStatusChip();
+
+  if (geminiKeyStatusNotice) {
+    if (customKey) {
+      const masked = customKey.length > 8 ? `${customKey.slice(0, 6)}...${customKey.slice(-4)}` : 'Ulangan';
+      geminiKeyStatusNotice.innerHTML = `✅ <strong>Shaxsiy API Kalit faol:</strong> <code>${escapeHtml(masked)}</code>`;
+    } else if (serverHasGeminiKey) {
+      const masked = serverMaskedGeminiKey || 'Serverda xavfsiz ulangan';
+      geminiKeyStatusNotice.innerHTML = `✅ <strong>Server (Vercel) Gemini API faol:</strong> <code>${escapeHtml(masked)}</code>`;
+    } else {
+      geminiKeyStatusNotice.textContent = "Hozircha API kalit kiritilmagan (lokal DSP dvigateli ishlamoqda).";
     }
   }
 }
@@ -1579,9 +2093,9 @@ checkGeminiApiStatus();
 
 function openSettingsModal() {
   if (modalSettings) modalSettings.classList.add('open');
-  const existingKey = getStoredGeminiKey();
-  if (existingKey && inputGeminiApiKey) {
-    inputGeminiApiKey.value = existingKey;
+  const existingKey = getCustomGeminiKey();
+  if (inputGeminiApiKey) {
+    inputGeminiApiKey.value = existingKey || '';
   }
   checkGeminiApiStatus();
 }
@@ -1598,21 +2112,26 @@ if (btnSaveApiKey) {
   btnSaveApiKey.onclick = async () => {
     const key = (inputGeminiApiKey.value || '').trim();
     if (!key) {
-      alert("Iltimos, Google Gemini API kalitini kiriting!");
+      localStorage.removeItem('voiceShield_geminiApiKey');
+      alert(serverHasGeminiKey
+        ? "Shaxsiy kalit o'chirildi. Server (Vercel) Gemini kaliti ishlatiladi!"
+        : "Iltimos, Google Gemini API kalitini kiriting!");
+      closeSettingsModal();
+      checkGeminiApiStatus();
       return;
     }
-    
-    // Brauzer xotirasiga (LocalStorage) saqlash (Vercel va har qanday joyda ishlashi uchun)
+
     localStorage.setItem('voiceShield_geminiApiKey', key);
 
-    // Agar backend mavjud bo'lsa unga ham uzatamiz
-    fetch('/api/gemini/set-key', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: key })
-    }).catch(() => {});
+    if (backendAvailable) {
+      fetch('/api/gemini/set-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: key })
+      }).catch(() => {});
+    }
 
-    alert("✅ Google Gemini API kaliti muvaffaqiyatli ulandi!");
+    alert("✅ Google Gemini API kaliti saqlandi!");
     closeSettingsModal();
     checkGeminiApiStatus();
   };
@@ -1623,37 +2142,25 @@ const GEMINI_SYSTEM_INSTRUCTION = `Siz xalqaro darajadagi eng ilg'or audio-krimi
 Vazifangiz audio yozuvni tinglab, uning haqiqiy tirik inson ovozimi yoki sun'iy intellekt (ElevenLabs, ChatGPT Voice, Google Gemini Vocoder, RVC kloni, XTTS, Bark, TTS) tomonidan yaratilgan ovoz ekanligini chuqur ilmiy tahlil qilishdir.
 
 QAT'IY FORENSIK VA FIZIOLOGIK MEZONLAR:
+1. HAQIQIY INSON OVOZI: Insoniy nafas olish, entikish, uf tortish, tomoq mikromodulyatsiyasi (glottal jitter va shimmer), tabiiy formant kontrasti va xona reverberatsiyasi bo'lsa: is_deepfake = false, risk_score = 5-18, verdict = "SAFE", ai_type = "Haqiqiy Inson".
+2. SUN'IY INTELLEKT (AI / DEEPFAKE): ElevenLabs (HiFi-GAN fazaviy dispersioni, 24kHz kesilish), ChatGPT Voice (autoregressiv silliq pitch, sintetik nafas), RVC klon (formant siljishi), TTS (steril sukunat, monoton prosodiya) aniqlansa: is_deepfake = true, risk_score = 85-98, verdict = "DANGEROUS".
 
-1. HAQIQIY INSON OVOZI VA FIZIOLOGIYASI (MUTLAQO SOXTA DEB ADASHTIRMANG):
-   - Insoniy nafas olish, entikish, uf tortish, pichirlash, tomoq qirish va so'zlar orasidagi tabiiy aerodinamik nafas tovushlari — bu inson tirikligining 100% isbotidir!
-   - Tomoq mushaklari va ovoz paychalarining mikromodulyatsiyasi (glottal cycle-to-cycle jitter 0.8% - 2.5% va shimmer).
-   - Vokal trakt rezonansi: og'iz, burun va halqum formantlari (F1-F4) ning tabiiy akustik kontrasti.
-   - Xona reverberatsiyasi, mikrofon masofasi va tabiiy fon shovqini.
-   - O'zbekcha yoki boshqa tildagi tabiiy urg'u, his-tuyg'u, hayajon, ovozning tabiiy xirillashi yoki baland-pastligi.
-   - AGAR OVOZDA INSONIY NAFAS, ENTIKISH YOKI TABIIY NUTQ BO'LSA: is_deepfake = false, risk_score = 5-15, verdict = "SAFE", ai_type = "Haqiqiy Inson".
-
-2. SUN'IY INTELLEKT (AI / DEEPFAKE) OVOZLARNING QAT'IY ANOMALIYALARI:
-   - ElevenLabs (v1/v2/v3): HiFi-GAN va BigVGAN neyro-vocoder fazaviy dispersion qoldiqlari (2.5 kHz - 4.2 kHz oraliqda metallik vocoder foni), 24kHz / 12kHz Nyquist chastota kesilishi, mikrotebranishning yo'qligi, gaplar orasidagi sun'iy raqamli sukunat.
-   - OpenAI ChatGPT Voice (Advanced Voice Mode, GPT-4o Realtime): Autoregressiv nutq modeli, doimiy fazaviy izchillik, sintetik nafas klipi, monoton mikrotebranish.
-   - RVC v1/v2 (Retrieval-based Voice Conversion): F1-F3 formant siljishi (warping), metallik yuqori garmonikalar, ohang sinishidagi kvantlash xatolari.
-   - XTTS v2, Tortoise, Bark, Edge-TTS: Monoton prosodiya, sintetik kvantlash, so'zlar orasidagi steril raqamli sukunat.
-
-JAVOB FORMATI (FAQAT QAT'IY JSON, BOSHQA HECH QANDAY MATNSIZ):
+JAVOB FORMATI (FAQAT QAT'IY JSON):
 {
   "is_deepfake": true / false,
-  "risk_score": 0 dan 100 gacha butun son (Inson bo'lsa: 5-15, AI bo'lsa: 85-98),
+  "risk_score": 0 dan 100 gacha butun son,
   "verdict": "SAFE" yoki "DANGEROUS",
   "ai_type": "Haqiqiy Inson" / "ElevenLabs Klon" / "Gemini Vocoder" / "ChatGPT Voice" / "RVC Klon" / "Standart TTS",
   "confidence": "HIGH" yoki "MEDIUM",
-  "reasons": "O'zbek tilida 1-2 jumlada nima uchun sun'iy yoki insoniy ekanligi haqida aniq professional sabab (masalan: Tabiiy nafas va vokal mikrotebranishi tasdiqlandi)"
+  "reasons": "O'zbek tilida 1-2 jumlada aniq professional sabab"
 }`;
 
 async function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => {
-      const base64 = reader.result.split(',')[1];
-      resolve(base64);
+      const parts = String(reader.result || '').split(',');
+      resolve(parts[1] || '');
     };
     reader.onerror = reject;
     reader.readAsDataURL(blob);
@@ -1662,19 +2169,51 @@ async function blobToBase64(blob) {
 
 const GEMINI_MODELS = [
   'gemini-flash-lite-latest',
-  'gemini-3-flash-preview',
-  'gemini-3.5-flash',
-  'gemini-3.1-flash-lite'
+  'gemini-3.1-flash-lite',
+  'gemini-3-flash-preview'
 ];
 
 async function analyzeAudioWithGemini(audioBlob, mimeType = "audio/webm") {
-  const apiKey = getStoredGeminiKey();
-  if (!apiKey) {
+  const customKey = getCustomGeminiKey();
+  if (!customKey && !serverHasGeminiKey) {
     openSettingsModal();
-    throw new Error("Gemini API kaliti kiritilmagan. Iltimos, sozlamalar oynasidan kalitni kiriting.");
+    throw new Error("Gemini API kaliti sozlanmagan. Sozlamalardan (⚙️) kalit kiriting.");
   }
 
+  const cleanMime = String(mimeType || 'audio/webm').split(';')[0];
   const b64Data = await blobToBase64(audioBlob);
+
+  // 1-yo'l: Server proksi orqali xavfsiz yuborish (Vercel / Python backend)
+  if (window.location.protocol !== 'file:') {
+    const headers = { 'Content-Type': 'application/json' };
+    if (customKey) headers['X-Gemini-Api-Key'] = customKey;
+
+    const proxyRes = await fetch('/api/gemini/analyze', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        audio_base64: b64Data,
+        mime_type: cleanMime
+      })
+    });
+
+    if (proxyRes.ok) {
+      return await proxyRes.json();
+    }
+    if (proxyRes.status !== 404 || !customKey) {
+      let errMsg = `Server xatosi (${proxyRes.status})`;
+      try {
+        const errJson = await proxyRes.json();
+        if (errJson?.error) errMsg = errJson.error;
+      } catch (e) {}
+      throw new Error(errMsg);
+    }
+  }
+
+  // 2-yo'l: Faqat lokal file:// rejimida foydalanuvchining shaxsiy kaliti bilan to'g'ridan-to'g'ri murojaat
+  if (!customKey) {
+    throw new Error("Offline rejimda ishlash uchun Sozlamalardan (⚙️) o'z Gemini API kalitingizni kiriting.");
+  }
 
   const payload = {
     systemInstruction: {
@@ -1684,11 +2223,11 @@ async function analyzeAudioWithGemini(audioBlob, mimeType = "audio/webm") {
       {
         parts: [
           {
-            text: "DIQQAT AUDIO-KRIMINALISTIKA EKSPERTIZASI: Ushbu audioda inson ovozini taqlid qiluvchi sun'iy intellekt (ElevenLabs, ChatGPT Voice, RVC klon, TikTok AI, TTS) bormi yoki bu tirik insonmi? Ovoz ravon bo'lsa ham uning neyro-vocoder fazaviy dispersioni, 24kHz kesilishi va mikrotebranishi yo'qligini sinchiklab tekshiring. Agar sun'iy belgi bo'lsa is_deepfake=true va risk_score=88-98 bering. Faqat biologik tovush paychalari mikrotebranishi bilan gapirayotgan tirik inson bo'lsagina is_deepfake=false, risk_score=10 bering. Faqat qat'iy JSON formatida javob bering."
+            text: "DIQQAT AUDIO-KRIMINALISTIKA EKSPERTIZASI: Ushbu audioda sun'iy intellekt (ElevenLabs, ChatGPT Voice, RVC klon, TTS) bormi yoki tirik insonmi? Faqat qat'iy JSON formatida javob bering."
           },
           {
             inline_data: {
-              mime_type: mimeType,
+              mime_type: cleanMime,
               data: b64Data
             }
           }
@@ -1705,7 +2244,7 @@ async function analyzeAudioWithGemini(audioBlob, mimeType = "audio/webm") {
   let lastError = null;
   for (const model of GEMINI_MODELS) {
     try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(customKey)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -1734,22 +2273,26 @@ async function analyzeAudioWithGemini(audioBlob, mimeType = "audio/webm") {
 // Jonli qo'ng'iroq paytida 3 soniyalik ovozni yozib olib Gemini orqali tahlil qilish
 if (btnRunGeminiAudit) {
   btnRunGeminiAudit.onclick = async () => {
-    if (!getStoredGeminiKey()) {
+    if (!getCustomGeminiKey() && !serverHasGeminiKey) {
       openSettingsModal();
       return;
     }
-    if (!mediaStream && !callActive) {
+    const stream = getRecordingStream();
+    if (!stream || !callActive) {
       alert("Iltimos, avval qo'ng'iroqni boshlang yoki mikrofonni yoqing!");
       return;
     }
 
+    const mySessionId = callSessionId;
     try {
-      txtGeminiAudit.textContent = "🎙️ 3s yozilmoqda...";
+      if (txtGeminiAudit) txtGeminiAudit.textContent = "🎙️ 3s yozilmoqda...";
       btnRunGeminiAudit.disabled = true;
 
+      const mimeType = getSupportedAudioMimeType();
+      const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const actualMime = rec.mimeType || mimeType || 'audio/webm';
       const audioChunks = [];
-      const rec = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
-      rec.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+      rec.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
       rec.start();
 
       setTimeout(() => {
@@ -1757,24 +2300,35 @@ if (btnRunGeminiAudit) {
       }, 3200);
 
       rec.onstop = async () => {
-        txtGeminiAudit.textContent = "✨ Gemini o'rganmoqda...";
-        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        if (mySessionId !== callSessionId || !callActive) {
+          if (txtGeminiAudit) txtGeminiAudit.textContent = "Gemini AI Tahlil";
+          btnRunGeminiAudit.disabled = false;
+          return;
+        }
+        if (txtGeminiAudit) txtGeminiAudit.textContent = "✨ Gemini o'rganmoqda...";
+        const blob = new Blob(audioChunks, { type: actualMime });
 
         try {
-          const result = await analyzeAudioWithGemini(blob, 'audio/webm');
+          const result = await analyzeAudioWithGemini(blob, actualMime);
+          if (mySessionId !== callSessionId || !callActive) return;
+
           if (boxGeminiResult) boxGeminiResult.style.display = 'block';
           if (geminiAuditType) geminiAuditType.textContent = result.ai_type || (result.is_deepfake ? 'AI Klon' : 'Insoniy Ovoz');
-          
+
           if (result.is_deepfake) {
-            geminiAuditBadge.className = 'm3-tonal-badge badge-danger';
-            geminiAuditBadge.textContent = `DEEPFAKE (${result.risk_score}%)`;
-            geminiAuditBadge.style.color = '#F2B8B5';
-            geminiAuditBadge.style.background = 'var(--m3-error-container)';
+            if (geminiAuditBadge) {
+              geminiAuditBadge.className = 'm3-tonal-badge badge-danger';
+              geminiAuditBadge.textContent = `DEEPFAKE (${result.risk_score}%)`;
+              geminiAuditBadge.style.color = '#F2B8B5';
+              geminiAuditBadge.style.background = 'var(--m3-error-container)';
+            }
           } else {
-            geminiAuditBadge.className = 'm3-tonal-badge badge-safe';
-            geminiAuditBadge.textContent = `XAVFSIZ (${result.risk_score}%)`;
-            geminiAuditBadge.style.color = '#6DD58C';
-            geminiAuditBadge.style.background = 'var(--m3-safe-container)';
+            if (geminiAuditBadge) {
+              geminiAuditBadge.className = 'm3-tonal-badge badge-safe';
+              geminiAuditBadge.textContent = `XAVFSIZ (${result.risk_score}%)`;
+              geminiAuditBadge.style.color = '#6DD58C';
+              geminiAuditBadge.style.background = 'var(--m3-safe-container)';
+            }
           }
 
           if (geminiAuditReason) geminiAuditReason.textContent = result.reasons || "Tahlil yakunlandi.";
@@ -1785,15 +2339,17 @@ if (btnRunGeminiAudit) {
             volume: "Ekspertiza"
           });
         } catch (err) {
-          alert("Gemini tahlil xatosi: " + err.message);
+          if (mySessionId === callSessionId && callActive) {
+            alert("Gemini tahlil xatosi: " + err.message);
+          }
         } finally {
-          txtGeminiAudit.textContent = "Gemini AI Tahlil";
+          if (txtGeminiAudit) txtGeminiAudit.textContent = "Gemini AI Tahlil";
           btnRunGeminiAudit.disabled = false;
         }
       };
     } catch (err) {
       alert("Audio yozishda xatolik: " + err.message);
-      txtGeminiAudit.textContent = "Gemini AI Tahlil";
+      if (txtGeminiAudit) txtGeminiAudit.textContent = "Gemini AI Tahlil";
       btnRunGeminiAudit.disabled = false;
     }
   };
@@ -1801,21 +2357,21 @@ if (btnRunGeminiAudit) {
 
 // ---------------- Avtomatik Gemini AI Sentinel (Himoyachi) ----------------
 function checkAutoGeminiAudit() {
-  if (autoGeminiAuditing || !callActive || !mediaStream) return;
+  if (autoGeminiAuditing || !callActive || !getRecordingStream()) return;
   const now = Date.now();
   if (now - lastAutoGeminiTime < 8000) return; // 8 soniya interval
 
-  // Agar mahalliy algoritm shubhali AI belgisini topsa (>= 28%) YOKI suhbat boshlanganiga 4s bo'lsa
   if (smoothedRisk >= 28 || (callSeconds >= 4 && lastAutoGeminiTime === 0)) {
     runAutoGeminiAudit();
   }
 }
 
 async function runAutoGeminiAudit() {
-  if (autoGeminiAuditing || !callActive || !mediaStream) return;
-  const apiKey = getStoredGeminiKey();
-  if (!apiKey) return;
+  const stream = getRecordingStream();
+  if (autoGeminiAuditing || !callActive || !stream) return;
+  if (!getCustomGeminiKey() && !serverHasGeminiKey) return;
 
+  const mySessionId = callSessionId;
   autoGeminiAuditing = true;
   lastAutoGeminiTime = Date.now();
 
@@ -1832,9 +2388,11 @@ async function runAutoGeminiAudit() {
       if (geminiAuditReason) geminiAuditReason.textContent = "Neyrotarmoq ovozni ElevenLabs, ChatGPT, RVC va inson bazasi bilan solishtirmoqda...";
     }
 
+    const mimeType = getSupportedAudioMimeType();
+    const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    const actualMime = rec.mimeType || mimeType || 'audio/webm';
     const audioChunks = [];
-    const rec = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
-    rec.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+    rec.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
     rec.start();
 
     setTimeout(() => {
@@ -1842,17 +2400,25 @@ async function runAutoGeminiAudit() {
     }, 2600);
 
     rec.onstop = async () => {
-      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      if (mySessionId !== callSessionId || !callActive) {
+        autoGeminiAuditing = false;
+        return;
+      }
+      const blob = new Blob(audioChunks, { type: actualMime });
       try {
-        const result = await analyzeAudioWithGemini(blob, 'audio/webm');
+        const result = await analyzeAudioWithGemini(blob, actualMime);
+        if (mySessionId !== callSessionId || !callActive) return;
+
         if (boxGeminiResult) boxGeminiResult.style.display = 'block';
         if (geminiAuditType) geminiAuditType.textContent = result.ai_type || (result.is_deepfake ? 'AI Klon' : 'Insoniy Ovoz');
 
         if (result.is_deepfake) {
-          geminiAuditBadge.className = 'm3-tonal-badge badge-danger';
-          geminiAuditBadge.textContent = `DEEPFAKE (${result.risk_score}%)`;
-          geminiAuditBadge.style.color = '#F2B8B5';
-          geminiAuditBadge.style.background = 'var(--m3-error-container)';
+          if (geminiAuditBadge) {
+            geminiAuditBadge.className = 'm3-tonal-badge badge-danger';
+            geminiAuditBadge.textContent = `DEEPFAKE (${result.risk_score}%)`;
+            geminiAuditBadge.style.color = '#F2B8B5';
+            geminiAuditBadge.style.background = 'var(--m3-error-container)';
+          }
           if (geminiAuditReason) geminiAuditReason.textContent = result.reasons || "Sun'iy intellekt klon ovozi aniqlandi.";
           smoothedRisk = Math.max(smoothedRisk, result.risk_score || 90);
           updateRiskScore(smoothedRisk, {
@@ -1862,10 +2428,12 @@ async function runAutoGeminiAudit() {
             volume: "Kriminalistika"
           });
         } else {
-          geminiAuditBadge.className = 'm3-tonal-badge badge-safe';
-          geminiAuditBadge.textContent = `XAVFSIZ (${result.risk_score}%)`;
-          geminiAuditBadge.style.color = '#6DD58C';
-          geminiAuditBadge.style.background = 'var(--m3-safe-container)';
+          if (geminiAuditBadge) {
+            geminiAuditBadge.className = 'm3-tonal-badge badge-safe';
+            geminiAuditBadge.textContent = `XAVFSIZ (${result.risk_score}%)`;
+            geminiAuditBadge.style.color = '#6DD58C';
+            geminiAuditBadge.style.background = 'var(--m3-safe-container)';
+          }
           if (geminiAuditReason) geminiAuditReason.textContent = result.reasons || "Tabiiy inson ovozi tasdiqlandi.";
           smoothedRisk = Math.min(smoothedRisk, 12);
           updateRiskScore(smoothedRisk, {
@@ -1972,6 +2540,11 @@ document.querySelectorAll('.btnTestAiModel').forEach(btn => {
     } else if (model === 'human') {
       isInjectingAI = false;
       smoothedRisk = 10;
+      if (!callActive && btnAnswer) {
+        setMode('mic');
+        btnAnswer.click();
+        return;
+      }
       updateRiskScore(10, {
         flatness: "0.12 (Tabiiy)",
         pitch: "140 Hz",
@@ -1994,6 +2567,9 @@ document.querySelectorAll('.btnTestAiModel').forEach(btn => {
 });
 
 function playSyntheticSpeech(text) {
+  if (aiSpeechSafetyTimer) clearTimeout(aiSpeechSafetyTimer);
+  aiSpeechSafetyTimer = setTimeout(() => { isInjectingAI = false; }, 8000);
+
   if (audioContext && aiAudioElement) {
     aiAudioElement.currentTime = 0;
     aiAudioElement.play().catch(() => {});
@@ -2003,7 +2579,8 @@ function playSyntheticSpeech(text) {
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 1.0;
     u.pitch = 0.95;
-    u.onend = () => { isInjectingAI = false; };
+    u.onend = () => { isInjectingAI = false; clearTimeout(aiSpeechSafetyTimer); };
+    u.onerror = () => { isInjectingAI = false; clearTimeout(aiSpeechSafetyTimer); };
     window.speechSynthesis.speak(u);
   } else {
     setTimeout(() => { isInjectingAI = false; }, 4000);

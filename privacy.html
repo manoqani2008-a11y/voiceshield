@@ -23,17 +23,18 @@
   <h1>VoiceShield Maxfiylik Siyosati</h1>
   <p><span class="badge">Kuchga kirish sanasi: 2026-yil</span></p>
 
-  <p>VoiceShield ilovasi foydalanuvchilarning shaxsiy ma'lumotlari va maxfiyligini birinchi o'ringa qo'yadi. Ushbu Maxfiylik Siyosati biz audio va foydalanuvchi ma'lumotlarini qanday qayta ishlashimizni tushuntiradi.</p>
+  <p>VoiceShield ilovasi foydalanuvchilarning shaxsiy ma'lumotlari va maxfiyligini birinchi o'ringa qo'yadi. Ushbu Maxfiylik Siyosati audio ma'lumotlar qanday qayta ishlanishini shaffof tarzda tushuntiradi.</p>
 
   <h2>1. To'planadigan ma'lumotlar va ruxsatlar</h2>
   <ul>
-    <li><strong>Mikrofon ruxsati (RECORD_AUDIO):</strong> Ilova qo'ng'iroq va audio oqimini real vaqtda tahlil qilish uchun mikrofondan foydalanadi. Ovoz faqat akustik spektral xususiyatlarni (tekislik, garmonika, pitch) hisoblash uchun ishlatiladi.</li>
-    <li><strong>Ovoz yozuvlarini saqlamaslik:</strong> Foydalanuvchilarning ovozli suhbatlari yoki audio yozuvlari serverda yoki uchinchi tomon bazalarida <strong>SAQLANMAYDI</strong>. Tahlil tugashi bilan audio ma'lumotlari xotiradan butunlay o'chiriladi.</li>
-    <li><strong>Internet ruxsati (INTERNET):</strong> Akustik parametrlarni AI xavfsizlik tahlili uchun server bilan xavfsiz (SSL/WSS shifrlangan) almashish maqsadida ishlatiladi.</li>
+    <li><strong>Mikrofon va Tizim audiosi ruxsati (RECORD_AUDIO):</strong> Qo'ng'iroqlar va yuklangan ovozli xabarlarni real vaqtda tahlil qilish uchun ishlatiladi. Asosiy akustik xususiyatlar (SFM, PVR, pitch) qurilmaning o'zida hisoblanadi.</li>
+    <li><strong>Google Gemini Multimodal AI tahlili:</strong> Deepfake belgilari tekshirilganda qisqa audio parcha (2.5–12 soniya) shifrlangan HTTPS orqali Google Gemini API xizmatiga faqat kriminalistik aniqlash maqsadida yuboriladi.</li>
+    <li><strong>Ovoz yozuvlarini doimiy saqlamaslik:</strong> VoiceShield o'z serverlarida foydalanuvchi suhbatlarini doimiy ma'lumotlar bazasida <strong>SAQLAMAYDI</strong>. Kontaktlar va qo'ng'iroqlar tarixi faqat foydalanuvchining o'z qurilmasida (LocalStorage) saqlanadi.</li>
+    <li><strong>Internet ruxsati (INTERNET):</strong> Xavfsiz HTTPS/WSS shifrlangan ulanishlar orqali AI tahlil natijalarini olish uchun ishlatiladi.</li>
   </ul>
 
   <h2>2. Ma'lumotlarning xavfsizligi</h2>
-  <p>Barcha ma'lumotlar tranzit paytida zamonaviy shifrlash protokollari (HTTPS va WSS) orqali himoyalanadi. Biz hech qanday shaxsiy yoki moliyaviy ma'lumotlarni uchinchi shaxslarga sotmaymiz yoki reklama maqsadida foydalanmaymiz.</p>
+  <p>Barcha ma'lumotlar tranzit paytida zamonaviy shifrlash protokollari (HTTPS va WSS) orqali himoyalanadi. Biz shaxsiy yoki moliyaviy ma'lumotlarni uchinchi shaxslarga sotmaymiz yoki reklama maqsadida ishlatmaymiz.</p>
 
   <h2>3. Bolalar maxfiyligi</h2>
   <p>VoiceShield 13 yoshgacha bo'lgan bolalardan bila turib shaxsiy ma'lumotlarni to'plamaydi.</p>
