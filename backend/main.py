@@ -130,7 +130,7 @@ async def gemini_analyze_audio(request: Request, file: UploadFile = File(None)):
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "service": "VoiceShield AI Engine", "version": "1.1.0"}
+    return {"status": "ok", "service": "VoiceShield AI Engine", "websocket": True, "version": "1.1.0"}
 
 
 @app.post("/api/analyze-audio-file")

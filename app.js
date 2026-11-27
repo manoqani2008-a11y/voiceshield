@@ -1563,7 +1563,7 @@ async function initWebSocket() {
       return;
     }
     const healthData = await healthRes.json();
-    if (!healthData || healthData.status !== 'ok') {
+    if (!healthData || healthData.status !== 'ok' || healthData.websocket === false) {
       backendAvailable = false;
       refreshTopStatusChip();
       return;
@@ -1758,13 +1758,13 @@ function analyzeAudioBufferDSP(audioBuffer) {
     pitchStd = Math.sqrt(pitchList.map(x => (x - avgPitch) ** 2).reduce((a, b) => a + b, 0) / pitchList.length);
   }
 
-  let prob = 12;
+  let prob = 10;
   const findings = [];
-  if (avgSfm >= 0.35) {
-    prob += Math.min(48, Math.round(25 + (avgSfm - 0.35) * 120));
+  if (avgSfm >= 0.28) {
+    prob += Math.min(48, Math.round(26 + (avgSfm - 0.28) * 140));
     findings.push(`Yuqori spektral tekislik / vocoder izi aniqlandi (SFM: ${avgSfm.toFixed(2)})`);
-  } else if (avgSfm < 0.22) {
-    prob = Math.max(8, prob - 4);
+  } else if (avgSfm < 0.15) {
+    prob = Math.max(8, prob - 2);
   }
 
   if (avgPvr < 24.0) {
@@ -1772,13 +1772,16 @@ function analyzeAudioBufferDSP(audioBuffer) {
     findings.push(`Past formant kontrasti (PVR: ${avgPvr.toFixed(1)} dB)`);
   }
 
-  if (pitchList.length >= 3 && pitchStd < 3.5) {
+  if (pitchList.length >= 3 && pitchStd < 1.2) {
+    prob += 30;
+    findings.push(`O'ta monoton sintetik asosiy ton (tebranish: ${pitchStd.toFixed(1)} Hz)`);
+  } else if (pitchList.length >= 3 && pitchStd < 3.5) {
     prob += 20;
     findings.push(`Monoton asosiy ton (tebranish: ${pitchStd.toFixed(1)} Hz)`);
   }
 
   if (sr >= 16000 && avgHf < 0.01 && prob > 20) {
-    prob += 12;
+    prob += 14;
     findings.push("Yuqori chastotalarda sintetik kesilish kuzatildi");
   }
 
@@ -1870,10 +1873,10 @@ async function uploadAudioFile(file, options = {}) {
       } catch (e) {}
     }
 
-    // Gemini Multimodal AI tahlili (server proksi orqali barcha formatlar uchun ishlaydi!)
+    // Gemini Multimodal AI tahlili (real foydalanuvchi fayllari uchun server proksi orqali)
     let geminiRes = null;
     const hasGemini = Boolean(getCustomGeminiKey() || serverHasGeminiKey);
-    if (hasGemini && (wavBlobForGemini || file.size <= 3_000_000)) {
+    if (!isSampleFixture && hasGemini && (wavBlobForGemini || file.size <= 3_000_000)) {
       try {
         const blobToSend = wavBlobForGemini || file;
         const mimeToSend = wavBlobForGemini ? 'audio/wav' : (file.type || 'audio/mp3');
